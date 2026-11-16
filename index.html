@@ -1,0 +1,1301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Torneo Pro - Interfaz Horizontal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .tab-btn.active { border-bottom: 4px solid #16a34a; color: #166534; font-weight: bold; }
+        /* Campos anchos (nombres y simulación) */
+        .field { width: 100%; padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 4px; transition: border-color 0.2s; }
+        /* Casillas de marcador: tamaño fijo, sin relleno para que el número se vea completo */
+        .score-box { width: 1.75rem; height: 1.75rem; padding: 0; text-align: center; border: 1px solid #d1d5db; border-radius: 4px; font-size: 0.8rem; font-weight: 600; background-color: #f9fafb; flex: none; }
+        .score-box.game { width: 2.1rem; font-size: 0.9rem; }
+        .field:focus, .score-box:focus, select:focus { border-color: #16a34a; outline: none; box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.2); }
+        /* Nombre editable dentro de los partidos */
+        .name-edit { width: 100%; min-width: 0; border: 1px dashed transparent; background: transparent; padding: 2px 4px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; color: #374151; text-overflow: ellipsis; }
+        .name-edit:hover { border-color: #9ca3af; background: #fff; }
+        .name-edit:focus { border: 1px solid #16a34a; background: #fff; outline: none; box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.2); }
+        /* Modo consulta (jugadores) y modo nube */
+        body.viewer .solo-admin { display: none !important; }
+        body.nube .solo-local { display: none !important; }
+        .score-box:disabled, .name-edit:disabled, select:disabled { opacity: 1; color: #374151; -webkit-text-fill-color: #374151; }
+        .name-edit:disabled:hover { border-color: transparent; background: transparent; }
+        .win-row { background-color: #dcfce7 !important; font-weight: bold; }
+        input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type="number"] { -moz-appearance: textfield; }
+    </style>
+</head>
+<body>
+<div class="max-w-7xl mx-auto p-4">
+    <h1 class="text-3xl font-bold text-center text-green-700 mb-2">Torneo Multicategoría (Diseño Horizontal)</h1>
+    <p class="text-center text-sm text-gray-600 mb-6">Partidos a 8 juegos (7-7 se define con muerte súbita a 10 puntos y se anota 8-7). En cada categoría puedes cambiar a 2 de 3 sets. Los nombres se pueden corregir directamente en los partidos. (Usa ENTER para saltar)</p>
+
+    <!-- Barra de estado de la nube (solo aparece si Firebase está configurado) -->
+    <div id="barra_nube" class="flex-wrap items-center justify-center gap-3 text-sm mb-4 bg-white border border-gray-200 rounded p-2 shadow-sm" style="display:none">
+        <span id="nube_estado" class="text-gray-700"></span>
+        <button id="btn_login" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded font-bold" style="display:none">🔑 Entrar (capturistas)</button>
+        <button id="btn_logout" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded font-bold" style="display:none">Salir</button>
+    </div>
+
+    <!-- Navegación -->
+    <div class="flex flex-wrap border-b border-gray-300 mb-6" id="tabs-nav">
+        <button id="btn_Inscripciones" class="solo-admin tab-btn active px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Inscripciones')">📝 Inscripciones</button>
+        <button id="btn_Jugadores" class="solo-admin tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Jugadores')">👥 Jugadores</button>
+        <button id="btn_AA" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('AA')">Cat AA</button>
+        <button id="btn_A" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('A')">Cat A</button>
+        <button id="btn_B" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('B')">Cat B</button>
+        <button id="btn_C" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('C')">Cat C</button>
+        <button id="btn_D" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('D')">Cat D</button>
+    </div>
+
+    <!-- Pestaña Inscripciones -->
+    <div id="tab_Inscripciones" class="tab-content active">
+        <!-- PANEL DE SIMULACIÓN -->
+        <div class="solo-local bg-blue-50 border border-blue-200 p-4 rounded-lg shadow-sm mb-6">
+            <h3 class="font-bold text-blue-800 mb-1 flex items-center"><span class="text-xl mr-2">⚙️</span> Panel de Simulación</h3>
+            <div class="flex flex-wrap gap-4 items-end">
+                <div class="w-16"><label class="text-xs font-semibold text-gray-600">Cat AA</label><input type="number" id="sim_AA" value="4" min="0" max="48" class="field text-center"></div>
+                <div class="w-16"><label class="text-xs font-semibold text-gray-600">Cat A</label><input type="number" id="sim_A" value="8" min="0" max="48" class="field text-center"></div>
+                <div class="w-16"><label class="text-xs font-semibold text-gray-600">Cat B</label><input type="number" id="sim_B" value="13" min="0" max="48" class="field text-center"></div>
+                <div class="w-16"><label class="text-xs font-semibold text-gray-600">Cat C</label><input type="number" id="sim_C" value="21" min="0" max="48" class="field text-center"></div>
+                <div class="w-16"><label class="text-xs font-semibold text-gray-600">Cat D</label><input type="number" id="sim_D" value="28" min="0" max="48" class="field text-center"></div>
+                <button onclick="simularInscripciones()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-sm font-bold shadow-sm transition">1. Llenar Nombres</button>
+                <button onclick="simularMarcadores()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded text-sm font-bold shadow-sm transition">2. Simular Partidos</button>
+                <span id="sim_msg" class="text-sm font-semibold text-blue-800"></span>
+            </div>
+        </div>
+
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-xl font-bold text-green-700 mb-2">Registro de Jugadores (Máx 48)</h2>
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-4" id="inscripciones-grid"></div>
+            <button onclick="limpiarDatos()" class="mt-6 w-full bg-red-600 text-white py-2 rounded hover:bg-red-700 transition font-bold shadow">Borrar Todos los Datos del Torneo</button>
+        </div>
+    </div>
+
+    <!-- Pestaña Datos de Jugadores -->
+    <div id="tab_Jugadores" class="tab-content"></div>
+
+    <!-- Contenedores Categorías -->
+    <div id="tab_AA" class="tab-content"></div>
+    <div id="tab_A" class="tab-content"></div>
+    <div id="tab_B" class="tab-content"></div>
+    <div id="tab_C" class="tab-content"></div>
+    <div id="tab_D" class="tab-content"></div>
+</div>
+
+<!-- Ventana de envío de resultados -->
+<div id="modal_envio" class="hidden fixed inset-0 z-50 items-center justify-center p-4" style="background:rgba(0,0,0,.5)">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-full overflow-y-auto p-4" id="modal_envio_body"></div>
+</div>
+
+<!-- Ventana de acceso para capturistas -->
+<div id="modal_login" class="hidden fixed inset-0 z-50 items-center justify-center p-4" style="background:rgba(0,0,0,.5)">
+    <form id="form_login" class="bg-white rounded-lg shadow-xl w-full max-w-sm p-5">
+        <h3 class="text-lg font-bold text-green-800 mb-3">Acceso de capturistas</h3>
+        <label class="text-xs font-semibold text-gray-600">Correo</label>
+        <input type="email" id="login_email" class="field mb-2" autocomplete="username" required>
+        <label class="text-xs font-semibold text-gray-600">Contraseña</label>
+        <input type="password" id="login_pass" class="field mb-2" autocomplete="current-password" required>
+        <p id="login_msg" class="text-xs text-red-600 mb-2"></p>
+        <div class="flex gap-2 justify-end">
+            <button type="button" id="login_cancel" class="px-3 py-1.5 rounded text-sm font-bold bg-gray-200 hover:bg-gray-300">Cancelar</button>
+            <button type="submit" class="px-3 py-1.5 rounded text-sm font-bold bg-green-600 hover:bg-green-700 text-white">Entrar</button>
+        </div>
+    </form>
+</div>
+
+<script>
+/* =====================================================================
+   CONFIGURACIÓN DE LA NUBE (Firebase)
+   Pega aquí los datos de tu proyecto (Consola de Firebase > Configuración
+   del proyecto > Tus apps > App web). Si se deja vacío, la aplicación
+   funciona en modo local, guardando solo en este navegador.
+   ===================================================================== */
+const firebaseConfig = {
+    apiKey: "AIzaSyDDWSWHi3xd5UaJnIXcOM0oAIR3ZDRah3c",
+    authDomain: "spark-6daac.firebaseapp.com",
+    databaseURL: "https://spark-6daac-default-rtdb.firebaseio.com",
+    projectId: "spark-6daac",
+    appId: "1:229691605669:web:1a695fbafdca43c5f2834c"
+};
+const FB_VER = '12.7.0';
+
+const categorias = ['AA', 'A', 'B', 'C', 'D'];
+const MAX_PLAYERS = 48;
+const GROUP_NAMES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+const STORE_KEY = 'torneoDinDB11';
+const OLD_KEYS = ['torneoDinDB10', 'torneoDinDB9'];
+
+/* ---------- Utilidades ---------- */
+function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function readJSON(key) {
+    try { return JSON.parse(localStorage.getItem(key)); } catch (e) { return null; }
+}
+
+/* ---------- Base de datos ---------- */
+function initDB() {
+    let base = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, datos: {}, ajustes: { torneo: '', lada: '52' } };
+    categorias.forEach(c => {
+        base.jugadores[c] = Array(MAX_PLAYERS).fill('');
+        base.scores[c] = {};     // 'P_slotA_slotB' (grupos) y 'O1'..'F' (fase final)
+        base.config[c] = 'auto';
+        base.manual[c] = {};     // 'M1'.. -> slot del jugador elegido como mejor 3ro
+        base.layout[c] = null;   // nº de grupos con el que se capturaron los marcadores
+        base.datos[c] = {};      // slot -> { tel, edad, email, utr, clasif, catRec, notas }
+        base.formato[c] = { g: 'pro', f: 'pro' };  // formato de grupos (g) y fase final (f): 'pro' = 8 juegos, 'sets' = 2 de 3
+    });
+    return base;
+}
+
+function hasScores(cat) { return Object.values(db.scores[cat]).some(v => v); }
+function isGroupKey(k) { return k.startsWith('P_'); }
+function hasPhaseScores(cat, fase) { return Object.keys(db.scores[cat]).some(k => db.scores[cat][k] && isGroupKey(k) === (fase === 'g')); }
+function clearPhaseScores(cat, fase) { Object.keys(db.scores[cat]).forEach(k => { if (isGroupKey(k) === (fase === 'g')) delete db.scores[cat][k]; }); }
+
+/* Tamaños de grupo equilibrados. N par: los grandes primero. N impar: los de tamaño par primero. */
+function getGroupSizes(N, G) {
+    let base = Math.floor(N / G), rem = N % G, sizes = [];
+    for (let i = 0; i < G; i++) sizes.push(i < rem ? base + 1 : base);
+    if (N % 2 !== 0) {
+        sizes.sort((a, b) => {
+            if (a % 2 === 0 && b % 2 !== 0) return -1;
+            if (a % 2 !== 0 && b % 2 === 0) return 1;
+            return b - a;
+        });
+    }
+    return sizes;
+}
+
+function splitGroups(activos, G) {
+    let sizes = getGroupSizes(activos.length, G), groups = [], p = 0;
+    for (let i = 0; i < G; i++) { groups.push(activos.slice(p, p + sizes[i])); p += sizes[i]; }
+    return groups;
+}
+
+function getNumGroups(N, cfg) {
+    if (cfg !== 'auto') {
+        // Al menos 3 jugadores por grupo
+        return Math.max(1, Math.min(parseInt(cfg) || 1, Math.floor(N / 3)));
+    }
+    if (N <= 6) return 1; if (N <= 12) return 2; if (N <= 18) return 3;
+    if (N <= 24) return 4; if (N <= 30) return 5; if (N <= 36) return 6;
+    if (N <= 42) return 7; return 8;
+}
+
+function getActivos(d, cat) {
+    return d.jugadores[cat]
+        .map((n, i) => ({ name: String(n || '').trim(), slot: i }))
+        .filter(p => p.name !== '');
+}
+
+/* Convierte datos de versiones anteriores (marcadores por posición en el grupo)
+   al formato nuevo (marcadores por pareja de jugadores). */
+function migrateOld(old) {
+    let d = initDB();
+    categorias.forEach(c => {
+        let arr = (old.jugadores && old.jugadores[c]) || [];
+        for (let i = 0; i < arr.length && i < MAX_PLAYERS; i++) if (arr[i]) d.jugadores[c][i] = arr[i];
+        if (old.config && old.config[c]) d.config[c] = old.config[c];
+        let os = (old.scores && old.scores[c]) || {};
+        let activos = getActivos(d, c), N = activos.length;
+        if (N < 3) return;
+        let cfg = d.config[c];
+        let oldG = cfg !== 'auto' ? Math.min(parseInt(cfg), N) : getNumGroups(N, 'auto');
+        splitGroups(activos, oldG).forEach((g, gi) => {
+            for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) {
+                let v = os[`${GROUP_NAMES[gi]}_${i}_${j}`];
+                if (v) d.scores[c][pairKey(g[i], g[j])] = v;
+            }
+        });
+        ['O1','O2','O3','O4','O5','O6','O7','O8','Q1','Q2','Q3','Q4','S1','S2','F'].forEach(k => { if (os[k]) d.scores[c][k] = os[k]; });
+        if (Object.keys(d.scores[c]).length) d.layout[c] = getNumGroups(N, cfg);
+        // La versión anterior usaba sets con 1 grupo y siempre sets en la fase final
+        d.formato[c] = { g: (oldG === 1 && Object.keys(d.scores[c]).some(k => k.startsWith('P_'))) ? 'sets' : 'pro',
+                         f: Object.keys(d.scores[c]).some(k => !k.startsWith('P_')) ? 'sets' : 'pro' };
+    });
+    return d;
+}
+
+function loadDB() {
+    let d = readJSON(STORE_KEY);
+    if (d && d.jugadores) {
+        let base = initDB();
+        if (d.ajustes) Object.assign(base.ajustes, d.ajustes);
+        ['jugadores', 'scores', 'config', 'manual', 'layout', 'datos'].forEach(f => {
+            categorias.forEach(c => { if (d[f] && d[f][c] !== undefined && d[f][c] !== null) base[f][c] = d[f][c]; });
+        });
+        categorias.forEach(c => {
+            let a = base.jugadores[c];
+            if (!Array.isArray(a)) a = [];
+            a = a.slice(0, MAX_PLAYERS).map(x => x || '');
+            while (a.length < MAX_PLAYERS) a.push('');
+            base.jugadores[c] = a;
+            // Datos guardados antes de existir la opción de formato: se deduce de los marcadores
+            if (!d.formato || !d.formato[c]) {
+                let ks = Object.keys(base.scores[c]).filter(k => base.scores[c][k]);
+                base.formato[c] = { g: ks.some(k => k.startsWith('P_') && base.scores[c][k].includes(',')) ? 'sets' : 'pro',
+                                    f: ks.some(k => !k.startsWith('P_')) ? 'sets' : 'pro' };
+            } else base.formato[c] = { g: d.formato[c].g === 'sets' ? 'sets' : 'pro', f: d.formato[c].f === 'sets' ? 'sets' : 'pro' };
+        });
+        return base;
+    }
+    for (let k of OLD_KEYS) {
+        let old = readJSON(k);
+        if (old && old.jugadores) { try { return migrateOld(old); } catch (e) { console.error(e); } }
+    }
+    return initDB();
+}
+
+function pairKey(a, b) { return `P_${a.slot}_${b.slot}`; }
+
+/* ---------- Nube ---------- */
+const nube = {
+    activa: !!(firebaseConfig.apiKey && firebaseConfig.databaseURL),
+    api: null, auth: null, rtdb: null,
+    user: null, autorizado: false,
+    pub: null, priv: null, rev: undefined,   // últimas copias recibidas
+    lastSync: {},                             // hojas ya enviadas/recibidas (para mandar solo lo que cambia)
+    bajas: [], ofrecido: false, primeraVez: true, hora: '', error: ''
+};
+function puedeEditar() { return !nube.activa || (!!nube.user && nube.autorizado); }
+
+let db = nube.activa ? initDB() : loadDB();
+
+/* Estructura en la nube:  publico/ (nombres, marcadores, formato)  y  privado/ (datos de contacto) */
+function toRemote(d) {
+    let pub = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, torneo: d.ajustes.torneo || '' };
+    categorias.forEach(c => {
+        pub.jugadores[c] = {};
+        d.jugadores[c].forEach((n, i) => { if (n) pub.jugadores[c][i] = n; });
+        pub.scores[c] = d.scores[c]; pub.config[c] = d.config[c]; pub.manual[c] = d.manual[c];
+        pub.layout[c] = d.layout[c]; pub.formato[c] = d.formato[c];
+    });
+    return { publico: pub, privado: { datos: d.datos, lada: d.ajustes.lada } };
+}
+function flatten(o, pre, out) {
+    Object.keys(o).forEach(k => {
+        let v = o[k], path = pre ? pre + '/' + k : k;
+        if (v === null || v === undefined || v === '') return;
+        if (typeof v === 'object') flatten(v, path, out); else out[path] = v;
+    });
+    return out;
+}
+function fromRemote(pub, priv) {
+    let d = initDB(); pub = pub || {}; priv = priv || {};
+    const obj = x => (x && typeof x === 'object') ? x : {};
+    categorias.forEach(c => {
+        let j = obj(obj(pub.jugadores)[c]);
+        for (let i = 0; i < MAX_PLAYERS; i++) if (j[i]) d.jugadores[c][i] = String(j[i]);
+        let sc = obj(obj(pub.scores)[c]);
+        Object.keys(sc).forEach(k => { if (sc[k]) d.scores[c][k] = String(sc[k]); });
+        let mn = obj(obj(pub.manual)[c]);
+        Object.keys(mn).forEach(k => { if (mn[k] !== null && mn[k] !== undefined) d.manual[c][k] = mn[k]; });
+        if (obj(pub.config)[c]) d.config[c] = String(pub.config[c]);
+        let ly = obj(pub.layout)[c]; d.layout[c] = (ly === undefined || ly === null) ? null : ly;
+        let f = obj(obj(pub.formato)[c]);
+        d.formato[c] = { g: f.g === 'sets' ? 'sets' : 'pro', f: f.f === 'sets' ? 'sets' : 'pro' };
+        let dt = obj(obj(priv.datos)[c]);   // puede llegar como arreglo o como objeto
+        Object.keys(dt).forEach(k => { if (dt[k] && typeof dt[k] === 'object') d.datos[c][k] = Object.assign({}, dt[k]); });
+    });
+    d.ajustes.torneo = pub.torneo || '';
+    if (priv.lada) d.ajustes.lada = String(priv.lada);
+    return d;
+}
+
+function saveDB() {
+    if (!nube.activa) {
+        try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); }
+        catch (e) { console.error('No se pudo guardar en la memoria del navegador', e); }
+        return;
+    }
+    if (!puedeEditar() || !nube.api) return;
+    // Solo se envían las hojas que cambiaron: así dos capturistas no se pisan entre sí
+    let cur = flatten(toRemote(db), '', {}), cambios = {}, n = 0, pubCambio = false;
+    Object.keys(cur).forEach(k => { if (nube.lastSync[k] !== cur[k]) { cambios[k] = cur[k]; n++; if (k.startsWith('publico/')) pubCambio = true; } });
+    Object.keys(nube.lastSync).forEach(k => { if (!(k in cur)) { cambios[k] = null; n++; if (k.startsWith('publico/')) pubCambio = true; } });
+    if (!n) return;
+    if (pubCambio) cambios['publico/rev'] = Date.now();   // avisa a quienes consultan que hay algo nuevo
+    nube.lastSync = cur;
+    nube.api.update(nube.api.ref(nube.rtdb), cambios).catch(e => {
+        nube.error = 'No se pudo guardar en la nube: ' + (e && e.message ? e.message : e); pintarBarra();
+    });
+}
+
+function tabActiva() { return document.querySelector('.tab-content.active').id.replace('tab_', ''); }
+
+/* Llegaron datos de la nube: se actualiza la pantalla sin quitar el foco de la casilla en uso */
+function aplicarRemoto() {
+    db = fromRemote(nube.pub, puedeEditar() ? nube.priv : null);
+    let hojas = flatten(toRemote(db), '', {});
+    if (!puedeEditar()) Object.keys(hojas).forEach(k => { if (k.startsWith('privado/')) delete hojas[k]; });
+    nube.lastSync = hojas;
+    let d = new Date(); nube.hora = d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+    nube.error = '';
+    let con = categorias.find(c => getActivos(db, c).length);
+    if (nube.primeraVez && con) {
+        // Primera vez que llegan jugadores: se abre la primera categoría que tenga inscritos
+        nube.primeraVez = false;
+        let act = tabActiva();
+        if (categorias.includes(act) && !getActivos(db, act).length) { openTab(con); pintarBarra(); return; }
+    }
+    refrescarUI(false); pintarBarra();
+}
+
+function firma(cat) {
+    let info = computeCat(cat);
+    return JSON.stringify([getActivos(db, cat).map(p => p.slot), db.config[cat], db.formato[cat], info.numGroups,
+        hasScores(cat) && db.layout[cat] != null && db.layout[cat] !== info.numGroups, puedeEditar()]);
+}
+
+function refrescarUI(forzar) {
+    let act = tabActiva(), ae = document.activeElement;
+    if (categorias.includes(act)) {
+        let cont = document.getElementById('tab_' + act);
+        if (forzar || cont.dataset.sig !== firma(act)) { buildCategoriasDOM(act); updateStandings(act); return; }
+        cont.querySelectorAll('.name-edit').forEach(el => { if (el !== ae) el.value = db.jugadores[act][parseInt(el.dataset.slot)] || ''; });
+        cont.querySelectorAll('.match-container').forEach(mc => {
+            let val = db.scores[act][mc.dataset.key] || '';
+            if (mc.dataset.sets === 'true') {
+                let sets = getSetScores(val);
+                mc.querySelectorAll('.dyn-part').forEach(el => { if (el !== ae) el.value = sets[parseInt(el.dataset.set) - 1][parseInt(el.dataset.p) - 1]; });
+            } else {
+                let sc = getGameScores(val);
+                mc.querySelectorAll('.dyn-part').forEach(el => { if (el !== ae) el.value = sc[parseInt(el.dataset.p) - 1]; });
+            }
+        });
+        updateStandings(act);
+    } else if (act === 'Inscripciones') {
+        document.querySelectorAll('.nombres-input').forEach(el => { if (el !== ae) el.value = db.jugadores[el.dataset.cat][parseInt(el.dataset.idx)] || ''; });
+    } else if (act === 'Jugadores') {
+        let cont = document.getElementById('tab_Jugadores');
+        if (forzar || !cont.contains(ae)) renderJugadores();
+        else {
+            cont.querySelectorAll('.dato-input').forEach(el => { if (el !== ae) el.value = getDato(el.dataset.cat, el.dataset.slot)[el.dataset.campo] || ''; });
+            cont.querySelectorAll('.name-edit').forEach(el => { if (el !== ae) el.value = db.jugadores[el.dataset.cat][parseInt(el.dataset.slot)] || ''; });
+        }
+    }
+}
+
+function pintarBarra() {
+    if (!nube.activa) return;
+    let est = document.getElementById('nube_estado'), bi = document.getElementById('btn_login'), bo = document.getElementById('btn_logout');
+    document.getElementById('barra_nube').style.display = 'flex';
+    let txt;
+    if (nube.error) txt = '⚠️ ' + nube.error;
+    else if (nube.user && nube.autorizado) txt = `✏️ Capturando como ${nube.user.email}` + (nube.hora ? ` · sincronizado ${nube.hora}` : '');
+    else if (nube.user) txt = `⚠️ ${nube.user.email} no tiene permiso de captura. Pide al organizador que autorice este identificador (UID): ${nube.user.uid}`;
+    else txt = '👁 Consulta de resultados' + (nube.hora ? ` · actualizado ${nube.hora}` : ' · cargando…');
+    est.textContent = txt;
+    bi.style.display = nube.user ? 'none' : '';
+    bo.style.display = nube.user ? '' : 'none';
+}
+
+function aplicarModo() {
+    document.body.classList.toggle('nube', nube.activa);
+    document.body.classList.toggle('viewer', !puedeEditar());
+    pintarBarra();
+    let act = tabActiva();
+    if (!puedeEditar() && !categorias.includes(act)) openTab(categorias.find(c => getActivos(db, c).length) || categorias[0]);
+    else refrescarUI(true);
+}
+
+/* Consulta pública: se pregunta cada 15 s si hubo cambios (sin conexión permanente a la base) */
+async function sondear() {
+    if (!nube.activa || puedeEditar() || document.hidden) return;
+    try {
+        let base = firebaseConfig.databaseURL.replace(/\/+$/, '');
+        let rev = await (await fetch(base + '/publico/rev.json')).json();
+        if (nube.pub !== null && rev === nube.rev) { nube.error = ''; return; }
+        let pub = await (await fetch(base + '/publico.json')).json();
+        if (puedeEditar()) return;
+        nube.rev = rev; nube.pub = pub || {};
+        aplicarRemoto();
+    } catch (e) { nube.error = 'Sin conexión con la nube. Se reintenta automáticamente.'; pintarBarra(); }
+}
+
+/* Carga del SDK de Firebase (solo se usa para el acceso y la captura) */
+async function cargarFirebase() {
+    const u = m => `https://www.gstatic.com/firebasejs/${FB_VER}/firebase-${m}.js`;
+    const [app, auth, dbm] = await Promise.all([import(u('app')), import(u('auth')), import(u('database'))]);
+    return Object.assign({}, app, auth, dbm);
+}
+
+function soltarEscuchas() { nube.bajas.forEach(f => { try { f(); } catch (e) {} }); nube.bajas = []; }
+
+function ofrecerSubida() {
+    // La nube está vacía y este navegador tiene un torneo guardado: se ofrece subirlo una sola vez
+    if (nube.ofrecido) return; nube.ofrecido = true;
+    let vacia = !categorias.some(c => getActivos(db, c).length);
+    if (!vacia) return;
+    let local = loadDB();
+    if (!categorias.some(c => getActivos(local, c).length)) return;
+    if (!confirm('La nube está vacía y este navegador tiene un torneo guardado. ¿Subirlo a la nube para que todos lo vean?')) return;
+    db = local; saveDB(); refrescarUI(true);
+}
+
+async function iniciarNube() {
+    aplicarModo();
+    sondear(); setInterval(sondear, 15000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) sondear(); });
+    try {
+        const api = await cargarFirebase();
+        nube.api = api;
+        const app = api.initializeApp(firebaseConfig);
+        nube.auth = api.getAuth(app); nube.rtdb = api.getDatabase(app);
+        api.onAuthStateChanged(nube.auth, async user => {
+            soltarEscuchas();
+            nube.user = user; nube.autorizado = false; nube.priv = null;
+            if (user) {
+                try { nube.autorizado = (await api.get(api.ref(nube.rtdb, 'capturistas/' + user.uid))).val() === true; }
+                catch (e) { nube.autorizado = false; }
+            }
+            if (puedeEditar()) {
+                nube.pub = null;
+                const llego = () => { if (nube.pub !== null && nube.priv !== null) { aplicarRemoto(); ofrecerSubida(); } };
+                const fallo = e => { nube.error = 'Error de lectura: ' + e.message; pintarBarra(); };
+                nube.bajas.push(api.onValue(api.ref(nube.rtdb, 'publico'), s => { nube.pub = s.val() || {}; llego(); }, fallo));
+                nube.bajas.push(api.onValue(api.ref(nube.rtdb, 'privado'), s => { nube.priv = s.val() || {}; llego(); }, fallo));
+            } else {
+                nube.pub = null; sondear();
+            }
+            aplicarModo();
+        });
+    } catch (e) {
+        console.error(e);
+        document.getElementById('btn_login').disabled = true;
+        document.getElementById('btn_login').title = 'No se pudo cargar el módulo de acceso (revisa tu conexión)';
+    }
+}
+
+function abrirLogin() {
+    document.getElementById('login_msg').textContent = '';
+    let m = document.getElementById('modal_login'); m.classList.remove('hidden'); m.classList.add('flex');
+    document.getElementById('login_email').focus();
+}
+function cerrarLogin() { let m = document.getElementById('modal_login'); m.classList.add('hidden'); m.classList.remove('flex'); }
+
+/* ---------- Reglas de marcador ---------- */
+function regSet(a, b) { return (a === 6 && b <= 4) || (a === 7 && (b === 5 || b === 6)); }
+function superTB(a, b) { return (a >= 10 && a - b >= 2) || (a === 1 && b === 0); }
+
+/* Partido a 2 de 3 sets; el tercero es súper muerte súbita a 10 puntos (diferencia de 2).
+   La súper muerte súbita cuenta como 1 set y 1 juego para el ganador. */
+function parseSets(texto) {
+    let r = { v1: 0, v2: 0, w: 0, g1: 0, g2: 0 };
+    if (!texto) return r;
+    let parts = texto.split(',');
+    for (let i = 0; i < parts.length && i < 3; i++) {
+        if (r.v1 === 2 || r.v2 === 2) break;
+        let m = parts[i].match(/(\d+)\s*-\s*(\d+)/);
+        if (!m) continue;
+        let a = parseInt(m[1]), b = parseInt(m[2]);
+        if (i < 2 && regSet(a, b)) { r.v1++; r.g1 += a; r.g2 += b; }
+        else if (i < 2 && regSet(b, a)) { r.v2++; r.g1 += a; r.g2 += b; }
+        else if (i === 2 && superTB(a, b)) { r.v1++; r.g1++; }
+        else if (i === 2 && superTB(b, a)) { r.v2++; r.g2++; }
+    }
+    // Solo hay ganador cuando alguien completó 2 sets
+    r.w = r.v1 === 2 ? 1 : (r.v2 === 2 ? 2 : 0);
+    return r;
+}
+
+/* Partido a 8 juegos: 8-0 a 8-6, u 8-7 cuando el 7-7 se definió con muerte súbita a 10 puntos */
+function proSetWin(a, b) { return a === 8 && b <= 7; }
+function parseGames(texto) {
+    if (!texto) return { v1: 0, v2: 0, w: 0 };
+    let m = texto.match(/(\d+)\s*-\s*(\d+)/);
+    if (m) {
+        let j1 = parseInt(m[1]), j2 = parseInt(m[2]);
+        if (proSetWin(j1, j2)) return { v1: j1, v2: j2, w: 1 };
+        if (proSetWin(j2, j1)) return { v1: j1, v2: j2, w: 2 };
+    }
+    return { v1: 0, v2: 0, w: 0 };
+}
+
+/* Para mostrar en las casillas (acepta marcadores a medio capturar) */
+function getGameScores(val) {
+    let m = (val || '').match(/(\d*)\s*-\s*(\d*)/);
+    return m ? [m[1], m[2]] : ['', ''];
+}
+function getSetScores(val) {
+    let sets = [['', ''], ['', ''], ['', '']];
+    if (!val) return sets;
+    val.split(',').forEach((p, i) => {
+        if (i < 3) { let m = p.match(/(\d*)\s*-\s*(\d*)/); if (m) sets[i] = [m[1], m[2]]; }
+    });
+    return sets;
+}
+
+/* ---------- Cálculo de grupos y tablas ---------- */
+function calcGroup(g, cat, isSets) {
+    let stats = g.map(p => ({ nombre: p.name, slot: p.slot, pj: 0, pg: 0, wg: 0, lg: 0, pct: 0, jgw: 0, jgl: 0, pct_j: 0 }));
+    let beat = {}, played = 0;
+    for (let i = 0; i < g.length; i++) {
+        for (let j = i + 1; j < g.length; j++) {
+            let score = db.scores[cat][pairKey(g[i], g[j])];
+            let res = isSets ? parseSets(score) : parseGames(score);
+            if (res.w === 0) continue;
+            played++;
+            stats[i].pj++; stats[j].pj++;
+            stats[i].wg += res.v1; stats[i].lg += res.v2; stats[j].wg += res.v2; stats[j].lg += res.v1;
+            if (isSets) { stats[i].jgw += res.g1; stats[i].jgl += res.g2; stats[j].jgw += res.g2; stats[j].jgl += res.g1; }
+            if (res.w === 1) { stats[i].pg++; beat[`${g[i].slot}>${g[j].slot}`] = true; }
+            else { stats[j].pg++; beat[`${g[j].slot}>${g[i].slot}`] = true; }
+        }
+    }
+    stats.forEach(s => {
+        let t = s.wg + s.lg; s.pct = t > 0 ? s.wg / t * 100 : 0;
+        let tj = s.jgw + s.jgl; s.pct_j = tj > 0 ? s.jgw / tj * 100 : 0;
+    });
+    // Criterios: PG, % sets/juegos, (% juegos), enfrentamiento directo, orden de inscripción
+    stats.sort((a, b) =>
+        b.pg - a.pg || b.pct - a.pct || (isSets ? b.pct_j - a.pct_j : 0) ||
+        (beat[`${a.slot}>${b.slot}`] ? -1 : (beat[`${b.slot}>${a.slot}`] ? 1 : 0)) ||
+        a.slot - b.slot);
+    return { stats, played, total: g.length * (g.length - 1) / 2 };
+}
+
+function computeCat(cat) {
+    let activos = getActivos(db, cat), N = activos.length;
+    if (N < 3) return { N, numGroups: 0, groups: [], tables: [], setsG: false, setsF: false };
+    let numGroups = getNumGroups(N, db.config[cat] || 'auto');
+    let groups = splitGroups(activos, numGroups);
+    let fmt = db.formato[cat] || { g: 'pro', f: 'pro' };
+    let tables = groups.map(g => calcGroup(g, cat, fmt.g === 'sets'));
+    return { N, numGroups, groups, tables, setsG: fmt.g === 'sets', setsF: fmt.f === 'sets' };
+}
+
+/* ---------- Definición de la fase final ---------- */
+function getBracket(G) {
+    const g = (gi, p) => ({ t: 'g', g: gi, p }), m = k => ({ t: 'm', k }), w = k => ({ t: 'w', m: k });
+    const semis = { title: 'Semifinales', matches: [['S1', w('Q1'), w('Q2')], ['S2', w('Q3'), w('Q4')]] };
+    const final = { title: 'Final', matches: [['F', w('S1'), w('S2')]] };
+    if (G >= 5) return [
+        { title: 'Octavos', matches: [
+            ['O1', g(0,0), G >= 8 ? g(7,1) : m('M1')],
+            ['O2', g(2,0), G >= 6 ? g(5,1) : m('M2')],
+            ['O3', g(4,0), g(3,1)],
+            ['O4', G >= 7 ? g(6,0) : m('M4'), g(1,1)],
+            ['O5', g(1,0), G >= 7 ? g(6,1) : m('M3')],
+            ['O6', g(3,0), g(4,1)],
+            ['O7', G >= 6 ? g(5,0) : m('M5'), g(2,1)],
+            ['O8', G >= 8 ? g(7,0) : m('M6'), g(0,1)] ] },
+        { title: 'Cuartos', matches: [['Q1', w('O1'), w('O2')], ['Q2', w('O3'), w('O4')], ['Q3', w('O5'), w('O6')], ['Q4', w('O7'), w('O8')]] },
+        semis, final ];
+    if (G === 4) return [
+        { title: 'Cuartos', matches: [['Q1', g(0,0), g(1,1)], ['Q2', g(2,0), g(3,1)], ['Q3', g(1,0), g(0,1)], ['Q4', g(3,0), g(2,1)]] },
+        semis, final ];
+    if (G === 3) return [
+        { title: 'Cuartos', matches: [['Q1', g(0,0), m('M1')], ['Q2', g(1,0), g(2,1)], ['Q3', g(2,0), g(0,1)], ['Q4', g(1,1), m('M2')]] },
+        semis, final ];
+    if (G === 2) return [
+        { title: 'Semifinales', matches: [['S1', g(0,0), g(1,1)], ['S2', g(1,0), g(0,1)]] },
+        final ];
+    return [];
+}
+
+function manualKeys(G) {
+    let keys = [];
+    getBracket(G).forEach(r => r.matches.forEach(mt => [mt[1], mt[2]].forEach(s => { if (s.t === 'm') keys.push(s.k); })));
+    return keys.sort();
+}
+
+function srcLabel(src) {
+    if (src.t === 'g') return `${src.p + 1}º ${GROUP_NAMES[src.g]}`;
+    if (src.t === 'w') return `Gan ${src.m}`;
+    return 'Mejor 3ro';
+}
+
+/* Jugadores que no quedaron 1º/2º de su grupo: candidatos a "mejor tercero" */
+function getCandidates(info) {
+    let c = [];
+    info.tables.forEach((t, gi) => t.stats.forEach((s, pos) => {
+        if (pos >= 2) c.push({ slot: s.slot, nombre: s.nombre, pos, gi, pg: s.pg, pct: s.pct });
+    }));
+    c.sort((a, b) => a.pos - b.pos || b.pct - a.pct || b.pg - a.pg || a.gi - b.gi);
+    return c;
+}
+
+/* Resuelve quién ocupa cada lugar del cuadro y quién gana cada partido */
+function resolveBracket(cat, info) {
+    let cands = getCandidates(info), winners = {}, sides = {};
+    const resolve = src => {
+        if (src.t === 'g') {
+            let t = info.tables[src.g];
+            if (!t || t.played === 0 || !t.stats[src.p]) return null;
+            return { slot: t.stats[src.p].slot, nombre: t.stats[src.p].nombre, prov: t.played < t.total };
+        }
+        if (src.t === 'm') {
+            let slot = db.manual[cat][src.k];
+            let c = cands.find(x => x.slot === slot);
+            return c ? { slot: c.slot, nombre: c.nombre, prov: false } : null;
+        }
+        return winners[src.m] || null;
+    };
+    getBracket(info.numGroups).forEach(r => r.matches.forEach(([key, s1, s2]) => {
+        let a = resolve(s1), b = resolve(s2);
+        let res = info.setsF ? parseSets(db.scores[cat][key]) : parseGames(db.scores[cat][key]);
+        winners[key] = (a && b) ? (res.w === 1 ? a : (res.w === 2 ? b : null)) : null;
+        sides[key] = [a, b, res.w];
+    }));
+    return { winners, sides, cands };
+}
+
+/* ---------- Simulación ---------- */
+function simularInscripciones() {
+    let hayReales = categorias.some(c => db.jugadores[c].some(n => n && n.trim() && !/^Jug [A-D]+-\d+$/.test(n.trim())));
+    if (hayReales && !confirm('Esto reemplaza TODOS los nombres, datos de contacto y marcadores por jugadores de prueba. ¿Continuar?')) return;
+    categorias.forEach(cat => {
+        db.datos[cat] = {};
+        let n = parseInt(document.getElementById('sim_' + cat).value) || 0;
+        n = Math.max(0, Math.min(n, MAX_PLAYERS));
+        db.jugadores[cat] = Array(MAX_PLAYERS).fill('');
+        db.scores[cat] = {}; db.manual[cat] = {}; db.layout[cat] = null;
+        for (let i = 0; i < n; i++) db.jugadores[cat][i] = `Jug ${cat}-${i + 1}`;
+    });
+    saveDB(); renderInscripciones();
+    document.getElementById('sim_msg').textContent = '✅ Inscripciones simuladas cargadas.';
+}
+
+function randSets() {
+    let w1 = Math.random() > 0.5, three = Math.random() > 0.6;
+    let s = three ? [[4, 6], [6, 3], [10, 8]] : [[6, 4], [6, 3]];   // siempre gana el jugador 1...
+    if (!w1) s = s.map(x => [x[1], x[0]]);                          // ...o se invierte para el jugador 2
+    return s.map(x => x.join('-')).join(', ');
+}
+
+function randGames() {
+    let l = Math.floor(Math.random() * 8);
+    return Math.random() > 0.5 ? `8-${l}` : `${l}-8`;
+}
+
+function simularMarcadores() {
+    categorias.forEach(cat => {
+        let info = computeCat(cat);
+        if (info.N < 3) return;
+        db.scores[cat] = {}; db.manual[cat] = {};
+        info.groups.forEach(g => {
+            for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) {
+                let key = pairKey(g[i], g[j]);
+                db.scores[cat][key] = info.setsG ? randSets() : randGames();
+            }
+        });
+        // Mejores terceros: se asignan en orden de clasificación
+        let cands = getCandidates(computeCat(cat));
+        manualKeys(info.numGroups).forEach((k, i) => { if (cands[i]) db.manual[cat][k] = cands[i].slot; });
+        getBracket(info.numGroups).forEach(r => r.matches.forEach(mt => { db.scores[cat][mt[0]] = info.setsF ? randSets() : randGames(); }));
+        db.layout[cat] = info.numGroups;
+    });
+    saveDB();
+    document.getElementById('sim_msg').textContent = '✅ Partidos simulados. Revisa cada categoría.';
+    let activeTab = document.querySelector('.tab-content.active').id.replace('tab_', '');
+    if (categorias.includes(activeTab)) { buildCategoriasDOM(activeTab); updateStandings(activeTab); }
+}
+
+/* ---------- Inscripciones ---------- */
+function renderInscripciones() {
+    const grid = document.getElementById('inscripciones-grid');
+    let html = '';
+    categorias.forEach(cat => {
+        html += `<div class="border rounded p-2 bg-gray-50"><h3 class="font-bold text-center bg-gray-200 text-gray-700 py-1 mb-2 rounded shadow-sm">Cat. ${cat}</h3><div class="max-h-96 overflow-y-auto px-1">`;
+        for (let i = 0; i < MAX_PLAYERS; i++) html += `<input type="text" class="field mb-1 text-xs nombres-input" data-cat="${cat}" data-idx="${i}" value="${esc(db.jugadores[cat][i])}" placeholder="${i + 1}. Jugador/Pareja">`;
+        html += `</div></div>`;
+    });
+    grid.innerHTML = html;
+}
+
+function openTab(tabName) {
+    document.querySelectorAll('.tab-content, .tab-btn').forEach(el => el.classList.remove('active'));
+    document.getElementById('tab_' + tabName).classList.add('active');
+    document.getElementById('btn_' + tabName).classList.add('active');
+    if (categorias.includes(tabName)) { buildCategoriasDOM(tabName); updateStandings(tabName); }
+    if (tabName === 'Jugadores') renderJugadores();
+}
+
+/* ---------- Datos de jugadores ---------- */
+const CAMPOS = [
+    ['tel', 'Celular', 'tel', 'w-28', '10 dígitos'],
+    ['edad', 'Edad', 'numeric', 'w-12', ''],
+    ['email', 'Correo electrónico', 'email', 'w-44', 'correo@ejemplo.com'],
+    ['utr', 'UTR (opc.)', 'decimal', 'w-14', ''],
+    ['clasif', 'Clasif. interna', 'text', 'w-24', 'criterio del club'],
+];
+let jugCat = null;
+
+function getDato(cat, slot) { return db.datos[cat][slot] || {}; }
+
+function renderJugadores() {
+    const cont = document.getElementById('tab_Jugadores');
+    if (!jugCat || !categorias.includes(jugCat)) jugCat = categorias.find(c => getActivos(db, c).length) || categorias[0];
+    let cat = jugCat, info = computeCat(cat), activos = getActivos(db, cat);
+    let grupoDe = {};
+    info.groups.forEach((g, gi) => g.forEach(p => { grupoDe[p.slot] = gi; }));
+
+    let html = `<div class="bg-white p-4 rounded-lg shadow-md mb-4">
+        <h2 class="text-xl font-bold text-green-700 mb-3">Datos de los jugadores</h2>
+        <div class="flex flex-wrap gap-4 items-end">
+            <div class="flex-1" style="min-width:220px"><label class="text-xs font-semibold text-gray-600">Nombre del torneo (aparece en los mensajes)</label>
+                <input type="text" class="field ajuste-input" data-campo="torneo" value="${esc(db.ajustes.torneo)}" placeholder="Ej. Torneo Relámpago de Noviembre"></div>
+            <div class="w-40"><label class="text-xs font-semibold text-gray-600" title="Se antepone a los celulares de 10 dígitos para WhatsApp">Lada de país (WhatsApp)</label>
+                <input type="text" inputmode="numeric" class="field ajuste-input" data-campo="lada" value="${esc(db.ajustes.lada)}" placeholder="52"></div>
+            <button onclick="exportarCSV()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded text-sm font-bold shadow-sm">⬇ Exportar a Excel (CSV)</button>
+        </div>
+        <p class="text-xs text-gray-500 mt-2">${nube.activa ? 'Estos datos solo los ven los capturistas con acceso; no aparecen en la consulta pública.' : 'Estos datos se guardan solo en este navegador.'} Los jugadores se dan de alta o de baja en la pestaña Inscripciones.</p>
+    </div>
+    <div class="flex flex-wrap gap-2 mb-3">` +
+        categorias.map(c => `<button class="jug-cat-btn px-3 py-1 rounded text-sm font-bold border ${c === cat ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}" data-cat="${c}">Cat ${c} (${getActivos(db, c).length})</button>`).join('') +
+    `</div>`;
+
+    if (!activos.length) {
+        html += `<div class="text-center p-10 bg-white rounded shadow text-gray-500 border border-gray-200">No hay jugadores inscritos en la categoría ${cat}.</div>`;
+    } else {
+        html += `<div class="bg-white p-3 rounded-lg shadow-md overflow-x-auto"><table class="w-full text-xs border-collapse">
+            <thead><tr class="bg-gray-100 text-gray-600 text-left">
+                <th class="p-2 border">#</th><th class="p-2 border">Gpo</th><th class="p-2 border">Nombre</th>
+                ${CAMPOS.map(c => `<th class="p-2 border">${c[1]}</th>`).join('')}
+                <th class="p-2 border" title="Categoría recomendada para el jugador">Cat. recomendada</th><th class="p-2 border">Notas</th><th class="p-2 border">Resultados de su grupo</th>
+            </tr></thead><tbody>`;
+        activos.forEach((p, i) => {
+            let d = getDato(cat, p.slot), gi = grupoDe[p.slot];
+            html += `<tr class="border-b">
+                <td class="p-1 border text-center text-gray-500">${i + 1}</td>
+                <td class="p-1 border text-center font-bold text-green-800">${gi !== undefined ? GROUP_NAMES[gi] : '-'}</td>
+                <td class="p-1 border" style="min-width:150px">${nameInput(cat, p)}</td>
+                ${CAMPOS.map(c => `<td class="p-1 border"><input type="text" inputmode="${c[2]}" class="field dato-input text-xs ${c[3]}" style="padding:2px 6px" data-cat="${cat}" data-slot="${p.slot}" data-campo="${c[0]}" value="${esc(d[c[0]])}" placeholder="${c[4]}"></td>`).join('')}
+                <td class="p-1 border"><select class="dato-input border rounded p-1 text-xs bg-gray-50" data-cat="${cat}" data-slot="${p.slot}" data-campo="catRec">
+                    ${['', ...categorias].map(c => `<option value="${c}" ${(d.catRec || '') === c ? 'selected' : ''}>${c || '—'}</option>`).join('')}</select></td>
+                <td class="p-1 border" style="min-width:140px"><input type="text" class="field dato-input text-xs" style="padding:2px 6px" data-cat="${cat}" data-slot="${p.slot}" data-campo="notas" value="${esc(d.notas)}"></td>
+                <td class="p-1 border text-center whitespace-nowrap">${gi !== undefined
+                    ? `<button class="send-group-btn bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-1 rounded hover:bg-emerald-200 font-bold" data-cat="${cat}" data-g="${gi}" data-slot="${p.slot}">📤 Enviar</button>`
+                    : '<span class="text-gray-400">sin grupo</span>'}</td>
+            </tr>`;
+        });
+        html += `</tbody></table></div>`;
+    }
+    cont.innerHTML = html;
+}
+
+function exportarCSV() {
+    const q = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+    let rows = [['Categoría', 'Grupo', 'Nombre', 'Celular', 'Edad', 'Correo', 'UTR', 'Clasificación interna', 'Categoría recomendada', 'Notas']];
+    categorias.forEach(cat => {
+        let info = computeCat(cat), grupoDe = {};
+        info.groups.forEach((g, gi) => g.forEach(p => { grupoDe[p.slot] = GROUP_NAMES[gi]; }));
+        getActivos(db, cat).forEach(p => {
+            let d = getDato(cat, p.slot);
+            rows.push([cat, grupoDe[p.slot] || '', p.name, d.tel, d.edad, d.email, d.utr, d.clasif, d.catRec, d.notas]);
+        });
+    });
+    let csv = '\uFEFF' + rows.map(r => r.map(q).join(',')).join('\r\n');
+    let a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = 'jugadores_torneo.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+}
+
+/* ---------- Envío de resultados por WhatsApp / correo ---------- */
+function mensajeGrupo(cat, gi) {
+    let info = computeCat(cat), g = info.groups[gi], t = info.tables[gi];
+    let L = [];
+    L.push(`🎾 ${db.ajustes.torneo.trim() || 'Torneo de tenis'}`);
+    L.push(`Categoría ${cat} - Grupo ${GROUP_NAMES[gi]}`);
+    L.push('', 'RESULTADOS');
+    for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) {
+        let sc = db.scores[cat][pairKey(g[i], g[j])] || '';
+        let res = info.setsG ? parseSets(sc) : parseGames(sc);
+        if (res.w === 0) L.push(`• ${g[i].name} vs ${g[j].name}: pendiente`);
+        else if (info.setsG) L.push(`• ${g[i].name} vs ${g[j].name}: ${sc.split(',').map(x => x.trim()).filter(x => x).join(', ')}${res.w === 1 ? '' : ' (gana ' + g[j].name + ')'}`);
+        else L.push(`• ${g[i].name} ${res.v1}-${res.v2} ${g[j].name}`);
+    }
+    L.push('', `POSICIONES${t.played < t.total ? ' (parciales)' : ''}`);
+    t.stats.forEach((s, i) => {
+        let det = info.setsG
+            ? `PG ${s.pg}, sets ${s.wg}-${s.lg}, juegos ${s.jgw}-${s.jgl}`
+            : `PG ${s.pg}, juegos ${s.wg}-${s.lg} (${s.pct.toFixed(1)}%)`;
+        L.push(`${i + 1}. ${s.nombre} - ${det}`);
+    });
+    return L.join('\n');
+}
+
+function telWhats(tel) {
+    let n = String(tel || '').replace(/\D/g, '');
+    let lada = String(db.ajustes.lada || '').replace(/\D/g, '');
+    if (n.length === 10 && lada) n = lada + n;
+    return n.length >= 10 ? n : '';
+}
+function emailOk(e) { return /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(String(e || '').trim()); }
+
+let envio = null;   // { cat, gi }
+function abrirEnvio(cat, gi, slotDestacado) {
+    let info = computeCat(cat), g = info.groups[gi];
+    if (!g) return;
+    envio = { cat, gi };
+    let conCorreo = g.filter(p => emailOk(getDato(cat, p.slot).email)).length;
+    let html = `<div class="flex justify-between items-start mb-2">
+            <h3 class="text-lg font-bold text-green-800">Enviar resultados - Cat. ${cat}, Grupo ${GROUP_NAMES[gi]}</h3>
+            <button class="cerrar-envio text-gray-500 hover:text-black text-xl font-bold px-2">✕</button>
+        </div>
+        <p class="text-xs text-gray-600 mb-1">Mensaje (puedes editarlo antes de enviar). A cada jugador se le antepone un saludo con su nombre.</p>
+        <textarea id="envio_txt" rows="11" class="w-full border border-gray-300 rounded p-2 text-xs font-mono mb-3">${esc(mensajeGrupo(cat, gi))}</textarea>
+        <table class="w-full text-xs border-collapse mb-3"><tbody>`;
+    g.forEach(p => {
+        let d = getDato(cat, p.slot), tel = telWhats(d.tel), ok = emailOk(d.email);
+        html += `<tr class="border-b ${p.slot === slotDestacado ? 'bg-yellow-50' : ''}">
+            <td class="p-1 font-bold text-gray-700">${esc(p.name)}</td>
+            <td class="p-1 text-gray-500">${tel ? '+' + tel : '<span class="text-red-500">sin celular</span>'}<br>${ok ? esc(d.email.trim()) : '<span class="text-red-500">sin correo</span>'}</td>
+            <td class="p-1 text-right whitespace-nowrap">
+                <button class="envio-wa px-2 py-1 rounded font-bold text-white ${tel ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-300 cursor-not-allowed'}" data-slot="${p.slot}" ${tel ? '' : 'disabled'}>WhatsApp</button>
+                <button class="envio-mail px-2 py-1 rounded font-bold text-white ${ok ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-300 cursor-not-allowed'}" data-slot="${p.slot}" ${ok ? '' : 'disabled'}>Correo</button>
+            </td></tr>`;
+    });
+    html += `</tbody></table>
+        <div class="flex flex-wrap gap-2 items-center">
+            <button class="envio-mail-todos px-3 py-1.5 rounded text-sm font-bold text-white ${conCorreo ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-300 cursor-not-allowed'}" ${conCorreo ? '' : 'disabled'}>✉ Un correo a todo el grupo (${conCorreo})</button>
+            <button class="envio-copiar px-3 py-1.5 rounded text-sm font-bold bg-gray-200 hover:bg-gray-300 text-gray-800">Copiar texto</button>
+            <span id="envio_msg" class="text-xs text-green-700 font-semibold"></span>
+        </div>
+        <p class="text-xs text-gray-500 mt-3">WhatsApp y el correo se abren con el mensaje ya escrito; solo falta oprimir Enviar. WhatsApp es un chat por jugador. Los celulares y correos se capturan en la pestaña Jugadores.</p>`;
+    document.getElementById('modal_envio_body').innerHTML = html;
+    let m = document.getElementById('modal_envio');
+    m.classList.remove('hidden'); m.classList.add('flex');
+}
+function cerrarEnvio() {
+    let m = document.getElementById('modal_envio');
+    m.classList.add('hidden'); m.classList.remove('flex'); envio = null;
+}
+function asuntoEnvio() {
+    return `Resultados ${db.ajustes.torneo.trim() || 'Torneo de tenis'} - Cat. ${envio.cat} Grupo ${GROUP_NAMES[envio.gi]}`;
+}
+function abrirEnlace(url, nuevaVentana) {
+    let a = document.createElement('a');
+    a.href = url; if (nuevaVentana) { a.target = '_blank'; a.rel = 'noopener'; }
+    document.body.appendChild(a); a.click(); a.remove();
+}
+function enviarA(slot, medio) {
+    let cat = envio.cat, d = getDato(cat, slot);
+    let nombre = String(db.jugadores[cat][slot] || '').trim();
+    let texto = `Hola ${nombre}:\n\n` + document.getElementById('envio_txt').value;
+    if (medio === 'wa') abrirEnlace(`https://wa.me/${telWhats(d.tel)}?text=${encodeURIComponent(texto)}`, true);
+    else abrirEnlace(`mailto:${encodeURIComponent(d.email.trim())}?subject=${encodeURIComponent(asuntoEnvio())}&body=${encodeURIComponent(texto)}`, false);
+}
+function enviarCorreoGrupo() {
+    let cat = envio.cat, g = computeCat(cat).groups[envio.gi];
+    let correos = g.map(p => getDato(cat, p.slot).email).filter(emailOk).map(e => e.trim());
+    let texto = 'Hola a todos:\n\n' + document.getElementById('envio_txt').value;
+    abrirEnlace(`mailto:${correos.map(encodeURIComponent).join(',')}?subject=${encodeURIComponent(asuntoEnvio())}&body=${encodeURIComponent(texto)}`, false);
+}
+function copiarEnvio() {
+    let ta = document.getElementById('envio_txt'), msg = document.getElementById('envio_msg');
+    const ok = () => { msg.textContent = 'Texto copiado.'; };
+    const viejo = () => { ta.select(); try { document.execCommand('copy'); ok(); } catch (e) { msg.textContent = 'Selecciona el texto y cópialo manualmente.'; } };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(ta.value).then(ok, viejo); else viejo();
+}
+
+/* ---------- Construcción de la interfaz ---------- */
+function nameInput(cat, p, extra) {
+    return `<input type="text" class="name-edit ${extra || ''}" data-cat="${cat}" data-slot="${p.slot}" value="${esc(p.name)}" title="Clic para corregir el nombre">`;
+}
+
+function setBoxes(sets) {
+    const row = p => [0, 1, 2].map(s =>
+        `<input type="text" inputmode="numeric" maxlength="2" class="score-box dyn-part" data-set="${s + 1}" data-p="${p}" value="${esc(sets[s][p - 1])}">`).join('');
+    return [row(1), row(2)];
+}
+
+function gameBox(p, v) { return `<input type="text" inputmode="numeric" maxlength="2" class="score-box game dyn-part" data-p="${p}" value="${esc(v)}">`; }
+
+/* Partido en dos renglones: 3 casillas por jugador (sets) o 1 casilla (8 juegos) */
+function matchHtml(cat, key, title, side1Html, side2Html, bg, isSets) {
+    let boxes;
+    if (isSets) boxes = setBoxes(getSetScores(db.scores[cat][key] || ''));
+    else { let sc = getGameScores(db.scores[cat][key] || ''); boxes = [gameBox(1, sc[0]), gameBox(2, sc[1])]; }
+    return `<div class="border border-gray-300 p-2 ${bg} shadow-sm rounded mb-2 match-container" data-cat="${cat}" data-key="${key}" data-sets="${isSets}">
+        ${title ? `<div class="text-[10px] text-gray-500 mb-2 font-bold text-center border-b pb-1 bg-gray-50 rounded-t">${title}</div>` : ''}
+        <div class="flex items-center justify-between mb-2 gap-2">
+            <div class="flex-1 min-w-0 text-left">${side1Html}</div>
+            <div class="flex gap-1 justify-end">${boxes[0]}</div>
+        </div>
+        <div class="flex items-center justify-between gap-2">
+            <div class="flex-1 min-w-0 text-left">${side2Html}</div>
+            <div class="flex gap-1 justify-end">${boxes[1]}</div>
+        </div>
+    </div>`;
+}
+
+function bracketSideHtml(cat, key, n, src) {
+    if (src.t === 'm') return `<select class="manual-select w-full text-[11px] p-1 bg-yellow-100 border border-yellow-300 rounded" data-cat="${cat}" data-mkey="${src.k}" id="sel_${cat}_${src.k}" title="Elige al mejor tercero que ocupa este lugar"></select>`;
+    return `<span id="lbl_${cat}_${key}_${n}" class="w-full text-xs truncate font-bold text-gray-400 block">${srcLabel(src)}</span>`;
+}
+
+function buildCategoriasDOM(cat) {
+    const container = document.getElementById('tab_' + cat);
+    let info = computeCat(cat), N = info.N, cfg = db.config[cat] || 'auto';
+    let numGroups = info.numGroups;
+
+    let opts = ['auto', '1', '2', '3', '4', '5', '6', '7', '8'].map(v =>
+        `<option value="${v}" ${cfg === v ? 'selected' : ''}>${v === 'auto' ? 'Automático' : v + (v === '1' ? ' Grupo' : ' Grupos')}</option>`).join('');
+    let nota = (cfg !== 'auto' && N >= 3 && numGroups !== parseInt(cfg)) ? `<span class="text-xs text-amber-700 ml-2">(se usan ${numGroups}: mínimo 3 jugadores por grupo)</span>` : '';
+
+    let fmt = db.formato[cat];
+    const fmtSel = fase => `<select class="p-1 border rounded text-sm format-select bg-gray-50 shadow-sm" data-cat="${cat}" data-fase="${fase}">
+        <option value="pro" ${fmt[fase] === 'pro' ? 'selected' : ''}>8 juegos</option>
+        <option value="sets" ${fmt[fase] === 'sets' ? 'selected' : ''}>2 de 3 sets</option></select>`;
+
+    let headerHtml = `<div class="flex flex-col md:flex-row justify-between items-center bg-white p-3 rounded shadow mb-4 border-l-4 border-green-600">
+        <h2 class="text-xl font-bold text-green-800">Categoría ${cat} - <span class="text-indigo-600">${N} Inscritos</span></h2>
+        <div class="solo-admin flex items-center flex-wrap mt-2 md:mt-0 gap-2">
+            <label class="text-sm font-semibold text-gray-700">Grupos:</label>
+            <select class="p-1 border rounded text-sm config-select bg-gray-50 shadow-sm" data-cat="${cat}">${opts}</select>${nota}
+            <label class="text-sm font-semibold text-gray-700 ml-2" title="Formato de los partidos de grupo">Partidos de grupo:</label>${fmtSel('g')}
+            <label class="text-sm font-semibold text-gray-700 ml-2" title="Formato de los partidos de fase final">Fase final:</label>${fmtSel('f')}
+            <button class="reset-cat-btn text-xs bg-red-100 text-red-700 border border-red-300 px-2 py-1 rounded hover:bg-red-200" data-cat="${cat}">Borrar marcadores</button>
+        </div>
+    </div>`;
+
+    if (N < 3) {
+        container.innerHTML = headerHtml + `<div class="text-center p-10 bg-white rounded shadow text-gray-500 border border-gray-200">${puedeEditar() ? 'Registra al menos 3 jugadores.' : 'Esta categoría todavía no tiene jugadores registrados.'}</div>`;
+        container.dataset.sig = firma(cat);
+        return;
+    }
+
+    let html = headerHtml;
+
+    // Aviso: los marcadores se capturaron con otra cantidad de grupos
+    if (hasScores(cat) && db.layout[cat] != null && db.layout[cat] !== numGroups) {
+        html += `<div class="solo-admin bg-yellow-50 border border-yellow-300 text-yellow-900 text-sm p-3 rounded mb-4 flex flex-wrap items-center gap-3">
+            <span>⚠️ Los marcadores guardados se capturaron con ${db.layout[cat]} grupo(s) y ahora hay ${numGroups}. Los de fase final pueden ya no corresponder.</span>
+            <button class="reset-cat-btn bg-red-600 text-white text-xs font-bold px-3 py-1 rounded" data-cat="${cat}">Borrar marcadores</button>
+            <button class="keep-cat-btn bg-gray-200 text-gray-800 text-xs font-bold px-3 py-1 rounded" data-cat="${cat}">Conservar</button>
+        </div>`;
+    }
+
+    html += `<div class="grid grid-cols-1 ${numGroups === 1 ? '' : 'lg:grid-cols-2'} gap-6 mb-8">`;
+
+    info.groups.forEach((g, gIdx) => {
+        let gName = GROUP_NAMES[gIdx];
+        html += `<div class="bg-white p-4 rounded shadow-md border-t-4 border-green-600">
+            <div class="flex items-center justify-between mb-4 bg-green-50 py-1 px-2 rounded">
+                <h3 class="text-lg font-bold text-green-800">Grupo ${gName} (${g.length} Jug.)</h3>
+                <button class="solo-admin send-group-btn text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-1 rounded hover:bg-emerald-200 font-bold" data-cat="${cat}" data-g="${gIdx}" title="Enviar resultados del grupo por WhatsApp o correo">📤 Enviar resultados</button>
+            </div>
+            <div class="flex flex-col xl:flex-row gap-6">
+                <div class="w-full xl:w-1/2 flex flex-col gap-2 max-h-96 overflow-y-auto pr-2">`;
+
+        for (let i = 0; i < g.length; i++) {
+            for (let j = i + 1; j < g.length; j++) {
+                let key = pairKey(g[i], g[j]);
+                if (info.setsG) {
+                    html += matchHtml(cat, key, '', nameInput(cat, g[i]), nameInput(cat, g[j]), 'bg-gray-50', true);
+                } else {
+                    let sc = getGameScores(db.scores[cat][key] || '');
+                    html += `<div class="flex justify-between items-center bg-white border border-gray-300 p-2 rounded shadow-sm match-container" data-cat="${cat}" data-key="${key}" data-sets="false">
+                        <div class="flex-1 min-w-0 pr-2">${nameInput(cat, g[i], 'text-right')}</div>
+                        <div class="flex justify-center items-center gap-1">
+                            ${gameBox(1, sc[0])}
+                            <span class="text-gray-400 font-bold">-</span>
+                            ${gameBox(2, sc[1])}
+                        </div>
+                        <div class="flex-1 min-w-0 pl-2">${nameInput(cat, g[j], 'text-left')}</div>
+                    </div>`;
+                }
+            }
+        }
+
+        let u = info.setsG ? 'Sets' : 'Juegos', a = info.setsG ? 'S' : 'J';
+        html += `</div>
+                <div class="w-full xl:w-1/2 overflow-x-auto">
+                    <table class="w-full text-xs whitespace-nowrap border-collapse shadow-sm text-center">
+                        <thead><tr class="bg-gray-100 text-gray-600">
+                            <th class="p-2 border">#</th><th class="p-2 border text-left">Jugador</th>
+                            <th class="p-2 border" title="Partidos Jugados">PJ</th>
+                            <th class="p-2 border" title="Partidos Ganados">PG</th>
+                            <th class="p-2 border" title="${u} Ganados">${a}G</th>
+                            <th class="p-2 border" title="${u} Perdidos">${a}P</th>
+                            <th class="p-2 border">% ${a}G</th>
+                            ${info.setsG ? '<th class="p-2 border bg-blue-50" title="Juegos Ganados">JG</th><th class="p-2 border bg-blue-50" title="Juegos Perdidos">JP</th><th class="p-2 border bg-blue-100">% JG</th>' : ''}
+                        </tr></thead>
+                        <tbody id="std_${cat}_${gName}"></tbody>
+                    </table>
+                    ${numGroups === 1 ? `<div class="text-center mt-4 text-xl font-bold text-green-700">🏆 <span id="win_f_${cat}">-</span></div>` : ''}
+                </div>
+            </div>
+        </div>`;
+    });
+    html += `</div>`;
+
+    // FASE FINAL
+    let rounds = getBracket(numGroups);
+    if (rounds.length) {
+        let nKeys = manualKeys(numGroups).length;
+        html += `<div class="bg-white p-4 rounded shadow mb-10 overflow-x-auto">
+            <h3 class="font-bold text-xl text-center mb-2 text-green-700 bg-green-50 py-1 rounded">Fase Final - ${rounds[0].title} a Final</h3>
+            ${nKeys ? `<p class="solo-admin text-xs text-center text-gray-600 mb-3">Las casillas amarillas son para elegir a los ${nKeys} mejores terceros${numGroups === 5 ? ' (con 5 grupos solo hay 5 terceros: el sexto lugar es para el mejor cuarto)' : ''}. La lista aparece ordenada por posición y porcentaje.</p>` : ''}
+            <div class="flex gap-4" style="min-width:${rounds.length * 250}px">`;
+        rounds.forEach((r, ri) => {
+            let isFinal = ri === rounds.length - 1;
+            let matchesHtml = r.matches.map(([key, s1, s2]) =>
+                matchHtml(cat, key, key, bracketSideHtml(cat, key, 1, s1), bracketSideHtml(cat, key, 2, s2), 'bg-white', info.setsF)).join('');
+            if (isFinal) {
+                html += `<div class="flex-1 min-w-0 flex flex-col justify-center"><h4 class="font-bold text-center bg-yellow-100 text-yellow-800 py-1 rounded-t">Final</h4>
+                    <div class="bg-yellow-50 p-2 rounded-b border-2 border-yellow-200">${matchesHtml}
+                        <div class="text-center mt-2 text-xl font-bold text-green-700">🏆 <span id="win_f_${cat}">-</span></div>
+                    </div></div>`;
+            } else {
+                html += `<div class="flex-1 min-w-0 flex flex-col ${ri === 0 ? 'gap-2' : 'justify-around'}"><h4 class="font-bold text-center bg-gray-100 py-1 rounded">${r.title}</h4>${matchesHtml}</div>`;
+            }
+        });
+        html += `</div></div>`;
+    }
+
+    container.innerHTML = html;
+    container.dataset.sig = firma(cat);
+    // Modo consulta: nada se puede modificar
+    if (!puedeEditar()) container.querySelectorAll('input, select').forEach(el => { el.disabled = true; el.title = ''; });
+}
+
+/* ---------- Actualización de tablas y cuadro (sin reconstruir, para no perder el foco) ---------- */
+function updateStandings(cat) {
+    let info = computeCat(cat);
+    if (info.N < 3) return;
+    let numGroups = info.numGroups;
+
+    info.tables.forEach((t, gIdx) => {
+        let tbody = document.getElementById(`std_${cat}_${GROUP_NAMES[gIdx]}`);
+        if (!tbody) return;
+        tbody.innerHTML = t.stats.map((j, i) => {
+            let clasifica = t.played > 0 && (numGroups === 1 ? i === 0 : i < 2);
+            return `<tr class="${clasifica ? 'win-row' : 'bg-white'} border-b">
+                <td class="p-1">${i + 1}</td><td class="p-1 text-left font-medium truncate max-w-[120px] text-gray-700" title="${esc(j.nombre)}">${esc(j.nombre)}</td>
+                <td class="p-1">${j.pj}</td><td class="p-1">${j.pg}</td><td class="p-1">${j.wg}</td><td class="p-1">${j.lg}</td><td class="p-1 font-bold text-green-800">${j.pct.toFixed(1)}%</td>
+                ${info.setsG ? `<td class="p-1 bg-blue-50/50 text-gray-600">${j.jgw}</td><td class="p-1 bg-blue-50/50 text-gray-600">${j.jgl}</td><td class="p-1 font-bold text-blue-800 bg-blue-50/50">${j.pct_j.toFixed(1)}%</td>` : ''}
+            </tr>`;
+        }).join('');
+    });
+
+    let champEl = document.getElementById(`win_f_${cat}`);
+
+    if (numGroups === 1) {
+        // Todos contra todos: campeón cuando se jugaron todos los partidos
+        let t = info.tables[0];
+        if (champEl) champEl.textContent = (t.played === t.total && t.total > 0) ? t.stats[0].nombre : '-';
+        return;
+    }
+
+    let rb = resolveBracket(cat, info);
+
+    // Listas de mejores terceros
+    let mKeys = manualKeys(numGroups);
+    mKeys.forEach(k => {
+        let sel = document.getElementById(`sel_${cat}_${k}`);
+        if (!sel) return;
+        let mine = db.manual[cat][k];
+        let usados = mKeys.filter(x => x !== k).map(x => db.manual[cat][x]);
+        let html = `<option value="">${puedeEditar() ? '— Elegir mejor 3ro —' : 'Mejor 3ro (por definir)'}</option>`;
+        rb.cands.forEach(c => {
+            if (usados.includes(c.slot)) return;
+            html += `<option value="${c.slot}" ${c.slot === mine ? 'selected' : ''}>${c.pos + 1}º ${GROUP_NAMES[c.gi]} · ${esc(c.nombre)} (${c.pg} PG, ${c.pct.toFixed(1)}%)</option>`;
+        });
+        sel.innerHTML = html;
+    });
+
+    // Etiquetas del cuadro
+    getBracket(numGroups).forEach(r => r.matches.forEach(([key, s1, s2]) => {
+        let [a, b, w] = rb.sides[key];
+        [[s1, a, 1], [s2, b, 2]].forEach(([src, p, n]) => {
+            let el = document.getElementById(`lbl_${cat}_${key}_${n}`);
+            if (!el) return;
+            let base = 'w-full text-xs truncate font-bold block ';
+            if (!p) { el.textContent = srcLabel(src); el.title = ''; el.className = base + 'text-gray-400'; }
+            else {
+                el.textContent = p.nombre + (p.prov ? ' (prov.)' : '');
+                el.title = p.prov ? `${srcLabel(src)} provisional: el grupo aún no termina` : srcLabel(src);
+                el.className = base + (p.prov ? 'text-gray-500 italic' : (a && b && w === n ? 'text-green-700' : 'text-gray-700'));
+            }
+        });
+    }));
+
+    if (champEl) champEl.textContent = rb.winners['F'] ? rb.winners['F'].nombre : '-';
+}
+
+function resetCat(cat) {
+    db.scores[cat] = {}; db.manual[cat] = {}; db.layout[cat] = null;
+    saveDB(); buildCategoriasDOM(cat); updateStandings(cat);
+}
+
+/* ---------- Eventos ---------- */
+function guardarDato(t) {
+    let cat = t.dataset.cat, slot = t.dataset.slot;
+    if (!db.datos[cat][slot]) db.datos[cat][slot] = {};
+    db.datos[cat][slot][t.dataset.campo] = t.value;
+    saveDB();
+}
+
+document.addEventListener('input', e => {
+    let t = e.target;
+    if (t.classList.contains('nombres-input')) {
+        db.jugadores[t.dataset.cat][parseInt(t.dataset.idx)] = t.value; saveDB();
+    } else if (t.classList.contains('dato-input')) {
+        guardarDato(t);
+    } else if (t.classList.contains('ajuste-input')) {
+        db.ajustes[t.dataset.campo] = t.value; saveDB();
+    } else if (t.classList.contains('name-edit')) {
+        // Corrección de nombre desde un partido: se actualiza en inscripciones, en los demás partidos, la tabla y el cuadro
+        let cat = t.dataset.cat, slot = parseInt(t.dataset.slot);
+        if (t.value.trim() === '') return;   // vacío: no se guarda (para dar de baja se usa Inscripciones)
+        db.jugadores[cat][slot] = t.value; saveDB();
+        document.querySelectorAll(`.name-edit[data-cat="${cat}"][data-slot="${slot}"]`).forEach(el => { if (el !== t) el.value = t.value; });
+        let ins = document.querySelector(`.nombres-input[data-cat="${cat}"][data-idx="${slot}"]`);
+        if (ins) ins.value = t.value;
+        updateStandings(cat);
+    } else if (t.classList.contains('dyn-part')) {
+        let limpio = t.value.replace(/\D/g, '').slice(0, 2);
+        if (limpio !== t.value) t.value = limpio;
+        let container = t.closest('.match-container');
+        let cat = container.dataset.cat, key = container.dataset.key;
+        let val = '';
+        if (container.dataset.sets !== 'true') {
+            let p1 = container.querySelector('[data-p="1"]').value.trim();
+            let p2 = container.querySelector('[data-p="2"]').value.trim();
+            if (p1 || p2) val = `${p1}-${p2}`;
+        } else {
+            // Se conserva la posición de cada set aunque alguno esté vacío
+            let sets = [1, 2, 3].map(s => {
+                let a = container.querySelector(`[data-set="${s}"][data-p="1"]`).value.trim();
+                let b = container.querySelector(`[data-set="${s}"][data-p="2"]`).value.trim();
+                return (a || b) ? `${a}-${b}` : '';
+            });
+            while (sets.length && sets[sets.length - 1] === '') sets.pop();
+            val = sets.join(', ');
+        }
+        if (val) db.scores[cat][key] = val; else delete db.scores[cat][key];
+        if (db.layout[cat] == null && val) db.layout[cat] = computeCat(cat).numGroups;
+        saveDB(); updateStandings(cat);
+    }
+});
+
+document.addEventListener('change', e => {
+    let t = e.target;
+    if (t.classList.contains('name-edit')) {
+        // Al salir del campo: si quedó vacío se restaura el nombre guardado
+        let guardado = db.jugadores[t.dataset.cat][parseInt(t.dataset.slot)];
+        if (t.value.trim() === '') t.value = guardado;
+        return;
+    }
+    if (t.classList.contains('dato-input')) { guardarDato(t); return; }
+    if (t.classList.contains('config-select')) {
+        let cat = t.dataset.cat, N = getActivos(db, cat).length;
+        let antes = getNumGroups(N, db.config[cat] || 'auto'), despues = getNumGroups(N, t.value);
+        if (N >= 3 && antes !== despues && hasScores(cat)) {
+            if (!confirm('Al cambiar el número de grupos se borrarán los marcadores capturados de esta categoría. ¿Continuar?')) {
+                t.value = db.config[cat] || 'auto'; return;
+            }
+            db.scores[cat] = {}; db.manual[cat] = {}; db.layout[cat] = null;
+        }
+        db.config[cat] = t.value;
+        saveDB(); buildCategoriasDOM(cat); updateStandings(cat);
+    } else if (t.classList.contains('format-select')) {
+        let cat = t.dataset.cat, fase = t.dataset.fase;
+        if (hasPhaseScores(cat, fase)) {
+            if (!confirm(`Al cambiar el formato se borrarán los marcadores ya capturados de ${fase === 'g' ? 'los grupos' : 'la fase final'} de esta categoría. ¿Continuar?`)) {
+                t.value = db.formato[cat][fase]; return;
+            }
+            clearPhaseScores(cat, fase);
+        }
+        db.formato[cat][fase] = t.value === 'sets' ? 'sets' : 'pro';
+        saveDB(); buildCategoriasDOM(cat); updateStandings(cat);
+    } else if (t.classList.contains('manual-select')) {
+        let cat = t.dataset.cat;
+        if (t.value === '') delete db.manual[cat][t.dataset.mkey];
+        else db.manual[cat][t.dataset.mkey] = parseInt(t.value);
+        saveDB(); updateStandings(cat);
+    }
+});
+
+document.addEventListener('click', e => {
+    let t = e.target;
+    if (t.id === 'btn_login') { abrirLogin(); return; }
+    if (t.id === 'btn_logout') { if (nube.api) nube.api.signOut(nube.auth); return; }
+    if (t.id === 'login_cancel' || t.id === 'modal_login') { cerrarLogin(); return; }
+    if (t.classList.contains('reset-cat-btn')) {
+        if (confirm(`¿Borrar todos los marcadores de la categoría ${t.dataset.cat}? (Los nombres se conservan)`)) resetCat(t.dataset.cat);
+    } else if (t.classList.contains('jug-cat-btn')) {
+        jugCat = t.dataset.cat; renderJugadores();
+    } else if (t.classList.contains('send-group-btn')) {
+        abrirEnvio(t.dataset.cat, parseInt(t.dataset.g), t.dataset.slot !== undefined ? parseInt(t.dataset.slot) : -1);
+    } else if (t.classList.contains('cerrar-envio') || t.id === 'modal_envio') {
+        cerrarEnvio();
+    } else if (t.classList.contains('envio-wa')) {
+        enviarA(parseInt(t.dataset.slot), 'wa');
+    } else if (t.classList.contains('envio-mail')) {
+        enviarA(parseInt(t.dataset.slot), 'mail');
+    } else if (t.classList.contains('envio-mail-todos')) {
+        enviarCorreoGrupo();
+    } else if (t.classList.contains('envio-copiar')) {
+        copiarEnvio();
+    } else if (t.classList.contains('keep-cat-btn')) {
+        let cat = t.dataset.cat;
+        db.layout[cat] = computeCat(cat).numGroups;
+        saveDB(); buildCategoriasDOM(cat); updateStandings(cat);
+    }
+});
+
+/* ENTER salta a la siguiente casilla. En partidos por sets el orden es
+   set 1 (jugador 1, jugador 2), set 2, set 3, y luego el siguiente partido. */
+document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.target.tagName !== 'INPUT' || e.target.type !== 'text') return;
+    e.preventDefault();
+    let orden = [], vistos = new Set();
+    document.querySelectorAll('input[type="text"]').forEach(el => {
+        if (el.offsetParent === null || el.disabled) return;
+        let mc = el.closest('.match-container');
+        if (!mc) { orden.push(el); return; }
+        if (vistos.has(mc)) return;
+        vistos.add(mc);
+        let ins = Array.from(mc.querySelectorAll('.dyn-part'));
+        ins.sort((a, b) => (parseInt(a.dataset.set || 1) - parseInt(b.dataset.set || 1)) || (a.dataset.p - b.dataset.p));
+        orden.push(...ins);
+    });
+    let i = orden.indexOf(e.target);
+    if (i > -1 && i < orden.length - 1) { orden[i + 1].focus(); orden[i + 1].select(); }
+    else e.target.blur();
+});
+
+document.getElementById('form_login').addEventListener('submit', e => {
+    e.preventDefault();
+    let msg = document.getElementById('login_msg');
+    if (!nube.api) { msg.textContent = 'No se pudo cargar el módulo de acceso. Revisa tu conexión y recarga la página.'; return; }
+    msg.textContent = 'Entrando…';
+    nube.api.signInWithEmailAndPassword(nube.auth, document.getElementById('login_email').value.trim(), document.getElementById('login_pass').value)
+        .then(() => { document.getElementById('login_pass').value = ''; cerrarLogin(); })
+        .catch(() => { msg.textContent = 'Correo o contraseña incorrectos.'; });
+});
+
+function limpiarDatos() {
+    if (nube.activa) {
+        if (confirm('¿Borrar TODO el torneo de la NUBE (nombres, datos de contacto y marcadores), para todos los usuarios?')) {
+            db = initDB(); saveDB(); refrescarUI(true);
+        }
+        return;
+    }
+    if (confirm('¿Borrar TODOS los datos (nombres, datos de contacto y marcadores) de TODAS las categorías?')) {
+        // Solo se borran los datos de esta aplicación, no toda la memoria del navegador
+        [STORE_KEY, ...OLD_KEYS].forEach(k => localStorage.removeItem(k));
+        db = initDB(); renderInscripciones();
+        categorias.forEach(c => { let el = document.getElementById('tab_' + c); if (el) el.innerHTML = ''; });
+        document.getElementById('tab_Jugadores').innerHTML = '';
+        document.getElementById('sim_msg').textContent = '';
+    }
+}
+
+renderInscripciones();
+if (nube.activa) iniciarNube();
+</script>
+</body>
+</html>
