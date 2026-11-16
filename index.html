@@ -23,6 +23,7 @@
         /* Modo consulta (jugadores) y modo nube */
         body.viewer .solo-admin { display: none !important; }
         body.nube .solo-local { display: none !important; }
+        body:not(.nube) .solo-nube { display: none !important; }
         .score-box:disabled, .name-edit:disabled, select:disabled { opacity: 1; color: #374151; -webkit-text-fill-color: #374151; }
         .name-edit:disabled:hover { border-color: transparent; background: transparent; }
         .win-row { background-color: #dcfce7 !important; font-weight: bold; }
@@ -46,6 +47,7 @@
     <div class="flex flex-wrap border-b border-gray-300 mb-6" id="tabs-nav">
         <button id="btn_Inscripciones" class="solo-admin tab-btn active px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Inscripciones')">📝 Inscripciones</button>
         <button id="btn_Jugadores" class="solo-admin tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Jugadores')">👥 Jugadores</button>
+        <button id="btn_Capturistas" class="solo-admin solo-nube tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Capturistas')">🔐 Capturistas <span id="badge_pend" class="bg-red-600 text-white text-xs font-bold rounded-full px-2" style="display:none"></span></button>
         <button id="btn_AA" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('AA')">Cat AA</button>
         <button id="btn_A" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('A')">Cat A</button>
         <button id="btn_B" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('B')">Cat B</button>
@@ -80,6 +82,9 @@
     <!-- Pestaña Datos de Jugadores -->
     <div id="tab_Jugadores" class="tab-content"></div>
 
+    <!-- Pestaña Capturistas (solo administradores, modo nube) -->
+    <div id="tab_Capturistas" class="tab-content"></div>
+
     <!-- Contenedores Categorías -->
     <div id="tab_AA" class="tab-content"></div>
     <div id="tab_A" class="tab-content"></div>
@@ -96,15 +101,21 @@
 <!-- Ventana de acceso para capturistas -->
 <div id="modal_login" class="hidden fixed inset-0 z-50 items-center justify-center p-4" style="background:rgba(0,0,0,.5)">
     <form id="form_login" class="bg-white rounded-lg shadow-xl w-full max-w-sm p-5">
-        <h3 class="text-lg font-bold text-green-800 mb-3">Acceso de capturistas</h3>
+        <h3 id="login_titulo" class="text-lg font-bold text-green-800 mb-3">Acceso de capturistas</h3>
+        <div id="login_reg" style="display:none">
+            <p class="text-xs text-gray-600 mb-2">Crea tu cuenta de anotador. Podrás capturar marcadores cuando un administrador te autorice.</p>
+            <label class="text-xs font-semibold text-gray-600">Tu nombre</label>
+            <input type="text" id="login_nombre" class="field mb-2" autocomplete="name">
+        </div>
         <label class="text-xs font-semibold text-gray-600">Correo</label>
         <input type="email" id="login_email" class="field mb-2" autocomplete="username" required>
         <label class="text-xs font-semibold text-gray-600">Contraseña</label>
         <input type="password" id="login_pass" class="field mb-2" autocomplete="current-password" required>
         <p id="login_msg" class="text-xs text-red-600 mb-2"></p>
+        <p class="text-xs mb-3"><a href="#" id="login_modo" class="text-blue-700 underline">¿Eres anotador nuevo? Crea tu cuenta</a></p>
         <div class="flex gap-2 justify-end">
             <button type="button" id="login_cancel" class="px-3 py-1.5 rounded text-sm font-bold bg-gray-200 hover:bg-gray-300">Cancelar</button>
-            <button type="submit" class="px-3 py-1.5 rounded text-sm font-bold bg-green-600 hover:bg-green-700 text-white">Entrar</button>
+            <button type="submit" id="login_ok" class="px-3 py-1.5 rounded text-sm font-bold bg-green-600 hover:bg-green-700 text-white">Entrar</button>
         </div>
     </form>
 </div>
@@ -259,12 +270,16 @@ function pairKey(a, b) { return `P_${a.slot}_${b.slot}`; }
 const nube = {
     activa: !!(firebaseConfig.apiKey && firebaseConfig.databaseURL),
     api: null, auth: null, rtdb: null,
-    user: null, autorizado: false,
+    user: null,
+    rol: 'ninguno',                           // 'admin' | 'marcador' (solo marcadores) | 'pendiente' | 'ninguno'
+    nombre: '', nombrePend: '', marc: {}, caps: {}, rolBaja: null,
     pub: null, priv: null, rev: undefined,   // últimas copias recibidas
     lastSync: {},                             // hojas ya enviadas/recibidas (para mandar solo lo que cambia)
     bajas: [], ofrecido: false, primeraVez: true, hora: '', error: ''
 };
-function puedeEditar() { return !nube.activa || (!!nube.user && nube.autorizado); }
+/* Administrador: puede todo.  Anotador autorizado: solo marcadores. */
+function puedeEditar() { return !nube.activa || nube.rol === 'admin'; }
+function puedeMarcar() { return puedeEditar() || nube.rol === 'marcador'; }
 
 let db = nube.activa ? initDB() : loadDB();
 
@@ -315,11 +330,15 @@ function saveDB() {
         catch (e) { console.error('No se pudo guardar en la memoria del navegador', e); }
         return;
     }
-    if (!puedeEditar() || !nube.api) return;
+    if (!puedeMarcar() || !nube.api) return;
     // Solo se envían las hojas que cambiaron: así dos capturistas no se pisan entre sí
     let cur = flatten(toRemote(db), '', {}), cambios = {}, n = 0, pubCambio = false;
     Object.keys(cur).forEach(k => { if (nube.lastSync[k] !== cur[k]) { cambios[k] = cur[k]; n++; if (k.startsWith('publico/')) pubCambio = true; } });
     Object.keys(nube.lastSync).forEach(k => { if (!(k in cur)) { cambios[k] = null; n++; if (k.startsWith('publico/')) pubCambio = true; } });
+    if (nube.rol === 'marcador') {
+        // Un anotador solo puede enviar marcadores
+        Object.keys(cambios).forEach(k => { if (!k.startsWith('publico/scores/') && !k.startsWith('publico/layout/')) { delete cambios[k]; n--; } });
+    }
     if (!n) return;
     if (pubCambio) cambios['publico/rev'] = Date.now();   // avisa a quienes consultan que hay algo nuevo
     nube.lastSync = cur;
@@ -351,7 +370,7 @@ function aplicarRemoto() {
 function firma(cat) {
     let info = computeCat(cat);
     return JSON.stringify([getActivos(db, cat).map(p => p.slot), db.config[cat], db.formato[cat], info.numGroups,
-        hasScores(cat) && db.layout[cat] != null && db.layout[cat] !== info.numGroups, puedeEditar()]);
+        hasScores(cat) && db.layout[cat] != null && db.layout[cat] !== info.numGroups, nube.rol]);
 }
 
 function refrescarUI(forzar) {
@@ -373,6 +392,8 @@ function refrescarUI(forzar) {
         updateStandings(act);
     } else if (act === 'Inscripciones') {
         document.querySelectorAll('.nombres-input').forEach(el => { if (el !== ae) el.value = db.jugadores[el.dataset.cat][parseInt(el.dataset.idx)] || ''; });
+    } else if (act === 'Capturistas') {
+        pintarCapturistas();
     } else if (act === 'Jugadores') {
         let cont = document.getElementById('tab_Jugadores');
         if (forzar || !cont.contains(ae)) renderJugadores();
@@ -389,8 +410,9 @@ function pintarBarra() {
     document.getElementById('barra_nube').style.display = 'flex';
     let txt;
     if (nube.error) txt = '⚠️ ' + nube.error;
-    else if (nube.user && nube.autorizado) txt = `✏️ Capturando como ${nube.user.email}` + (nube.hora ? ` · sincronizado ${nube.hora}` : '');
-    else if (nube.user) txt = `⚠️ ${nube.user.email} no tiene permiso de captura. Pide al organizador que autorice este identificador (UID): ${nube.user.uid}`;
+    else if (nube.rol === 'admin') txt = `✏️ Administrador: ${nube.user.email}` + (nube.hora ? ` · sincronizado ${nube.hora}` : '');
+    else if (nube.rol === 'marcador') txt = `🎾 Anotador: ${nube.nombre || nube.user.email} · solo puede capturar marcadores` + (nube.hora ? ` · sincronizado ${nube.hora}` : '');
+    else if (nube.user) txt = `⏳ ${nube.user.email}: tu cuenta está pendiente de autorización por un administrador. Mientras tanto solo puedes consultar.`;
     else txt = '👁 Consulta de resultados' + (nube.hora ? ` · actualizado ${nube.hora}` : ' · cargando…');
     est.textContent = txt;
     bi.style.display = nube.user ? 'none' : '';
@@ -408,13 +430,13 @@ function aplicarModo() {
 
 /* Consulta pública: se pregunta cada 15 s si hubo cambios (sin conexión permanente a la base) */
 async function sondear() {
-    if (!nube.activa || puedeEditar() || document.hidden) return;
+    if (!nube.activa || puedeMarcar() || document.hidden) return;
     try {
         let base = firebaseConfig.databaseURL.replace(/\/+$/, '');
         let rev = await (await fetch(base + '/publico/rev.json')).json();
         if (nube.pub !== null && rev === nube.rev) { nube.error = ''; return; }
         let pub = await (await fetch(base + '/publico.json')).json();
-        if (puedeEditar()) return;
+        if (puedeMarcar()) return;
         nube.rev = rev; nube.pub = pub || {};
         aplicarRemoto();
     } catch (e) { nube.error = 'Sin conexión con la nube. Se reintenta automáticamente.'; pintarBarra(); }
@@ -427,7 +449,72 @@ async function cargarFirebase() {
     return Object.assign({}, app, auth, dbm);
 }
 
-function soltarEscuchas() { nube.bajas.forEach(f => { try { f(); } catch (e) {} }); nube.bajas = []; }
+function soltarEscuchas(todo) {
+    nube.bajas.forEach(f => { try { f(); } catch (e) {} }); nube.bajas = [];
+    if (todo && nube.rolBaja) { try { nube.rolBaja(); } catch (e) {} nube.rolBaja = null; }
+}
+
+/* Conecta las lecturas que corresponden al nivel del usuario */
+function configurarEscuchas() {
+    soltarEscuchas(false);
+    const api = nube.api, R = p => api.ref(nube.rtdb, p);
+    const fallo = e => { nube.error = 'Error de lectura: ' + e.message; pintarBarra(); };
+    if (nube.rol === 'admin') {
+        nube.pub = null; nube.priv = null;
+        const llego = () => { if (nube.pub !== null && nube.priv !== null) { aplicarRemoto(); ofrecerSubida(); } };
+        nube.bajas.push(api.onValue(R('publico'), s => { nube.pub = s.val() || {}; llego(); }, fallo));
+        nube.bajas.push(api.onValue(R('privado'), s => { nube.priv = s.val() || {}; llego(); }, fallo));
+        nube.bajas.push(api.onValue(R('marcadores'), s => { nube.marc = s.val() || {}; pintarCapturistas(); }, fallo));
+        nube.bajas.push(api.onValue(R('capturistas'), s => { nube.caps = s.val() || {}; pintarCapturistas(); }, fallo));
+    } else if (nube.rol === 'marcador') {
+        nube.pub = null;
+        nube.bajas.push(api.onValue(R('publico'), s => { nube.pub = s.val() || {}; aplicarRemoto(); }, fallo));
+    } else {
+        nube.pub = null; sondear();
+    }
+    aplicarModo();
+}
+
+/* ---------- Pestaña Capturistas: autorizar anotadores y administradores ---------- */
+function pintarCapturistas() {
+    let pend = Object.keys(nube.marc).filter(u => nube.marc[u] && nube.marc[u].aprobado !== true && nube.caps[u] !== true).length;
+    let badge = document.getElementById('badge_pend');
+    badge.textContent = pend; badge.style.display = pend ? '' : 'none';
+    if (tabActiva() !== 'Capturistas' || nube.rol !== 'admin') return;
+    let uids = Array.from(new Set([...Object.keys(nube.marc), ...Object.keys(nube.caps)]));
+    const nivel = u => nube.caps[u] === true ? 2 : ((nube.marc[u] && nube.marc[u].aprobado === true) ? 1 : 0);
+    uids.sort((a, b) => nivel(a) - nivel(b) || String((nube.marc[a] || {}).nombre || '').localeCompare(String((nube.marc[b] || {}).nombre || '')));
+    const btn = (acc, uid, txt, color) => `<button class="cap-btn px-2 py-1 rounded text-xs font-bold ${color}" data-acc="${acc}" data-uid="${esc(uid)}">${txt}</button>`;
+    let filas = uids.map(u => {
+        let m = nube.marc[u] || {}, n = nivel(u), yo = nube.user && u === nube.user.uid;
+        let etiqueta = n === 2 ? '<span class="text-green-800 font-bold">Administrador</span>' : (n === 1 ? '<span class="text-blue-800 font-bold">Anotador (solo marcadores)</span>' : '<span class="text-red-700 font-bold">Pendiente de autorizar</span>');
+        let acc = '';
+        if (yo) acc = '<span class="text-gray-400">(tú)</span>';
+        else if (n === 0) acc = btn('aprobar', u, 'Autorizar', 'bg-green-600 text-white hover:bg-green-700') + ' ' + btn('rechazar', u, 'Rechazar', 'bg-gray-200 text-gray-800 hover:bg-gray-300');
+        else if (n === 1) acc = btn('revocar', u, 'Quitar permiso', 'bg-gray-200 text-gray-800 hover:bg-gray-300') + ' ' + btn('admin', u, 'Hacer administrador', 'bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200');
+        else acc = btn('noadmin', u, 'Quitar administrador', 'bg-gray-200 text-gray-800 hover:bg-gray-300');
+        return `<tr class="border-b"><td class="p-2 border font-bold text-gray-700">${esc(m.nombre || '(sin nombre)')}</td><td class="p-2 border">${esc(m.email || u)}</td><td class="p-2 border">${etiqueta}</td><td class="p-2 border whitespace-nowrap">${acc}</td></tr>`;
+    }).join('');
+    document.getElementById('tab_Capturistas').innerHTML = `<div class="bg-white p-4 rounded-lg shadow-md">
+        <h2 class="text-xl font-bold text-green-700 mb-2">Capturistas</h2>
+        <p class="text-sm text-gray-600 mb-3">Los anotadores crean su cuenta desde el botón "Entrar" de esta misma página y aparecen aquí como pendientes. Un <b>anotador</b> solo puede capturar marcadores; un <b>administrador</b> puede además inscribir jugadores, cambiar formatos, ver datos de contacto y autorizar a otros.</p>
+        <div class="overflow-x-auto"><table class="w-full text-sm border-collapse">
+            <thead><tr class="bg-gray-100 text-gray-600 text-left"><th class="p-2 border">Nombre</th><th class="p-2 border">Correo</th><th class="p-2 border">Nivel</th><th class="p-2 border">Acciones</th></tr></thead>
+            <tbody>${filas || '<tr><td colspan="4" class="p-4 text-center text-gray-500">Todavía no hay solicitudes.</td></tr>'}</tbody>
+        </table></div>
+        <p class="text-xs text-gray-500 mt-3">"Rechazar" solo elimina la solicitud; la cuenta (correo y contraseña) se borra desde la consola de Firebase, en Authentication.</p>
+    </div>`;
+}
+
+function accionCapturista(acc, uid) {
+    let m = nube.marc[uid] || {}, quien = m.nombre || m.email || uid, c = {};
+    if (acc === 'aprobar') c['marcadores/' + uid + '/aprobado'] = true;
+    else if (acc === 'revocar') c['marcadores/' + uid + '/aprobado'] = false;
+    else if (acc === 'rechazar') { if (!confirm(`¿Eliminar la solicitud de ${quien}?`)) return; c['marcadores/' + uid] = null; }
+    else if (acc === 'admin') { if (!confirm(`¿Dar a ${quien} nivel de ADMINISTRADOR? Podrá modificar todo el torneo y autorizar a otros.`)) return; c['capturistas/' + uid] = true; c['marcadores/' + uid + '/aprobado'] = true; }
+    else if (acc === 'noadmin') { if (!confirm(`¿Quitar a ${quien} el nivel de administrador? Quedará como anotador.`)) return; c['capturistas/' + uid] = null; }
+    nube.api.update(nube.api.ref(nube.rtdb), c).catch(e => { nube.error = 'No se pudo aplicar el cambio: ' + e.message; pintarBarra(); });
+}
 
 function ofrecerSubida() {
     // La nube está vacía y este navegador tiene un torneo guardado: se ofrece subirlo una sola vez
@@ -450,22 +537,34 @@ async function iniciarNube() {
         const app = api.initializeApp(firebaseConfig);
         nube.auth = api.getAuth(app); nube.rtdb = api.getDatabase(app);
         api.onAuthStateChanged(nube.auth, async user => {
-            soltarEscuchas();
-            nube.user = user; nube.autorizado = false; nube.priv = null;
-            if (user) {
-                try { nube.autorizado = (await api.get(api.ref(nube.rtdb, 'capturistas/' + user.uid))).val() === true; }
-                catch (e) { nube.autorizado = false; }
+            soltarEscuchas(true);
+            nube.user = user; nube.rol = 'ninguno'; nube.priv = null; nube.marc = {}; nube.caps = {}; nube.nombre = '';
+            if (!user) { configurarEscuchas(); return; }
+            let esAdmin = false;
+            try { esAdmin = (await api.get(api.ref(nube.rtdb, 'capturistas/' + user.uid))).val() === true; } catch (e) {}
+            if (nube.user !== user) return;
+            const refYo = api.ref(nube.rtdb, 'marcadores/' + user.uid);
+            if (esAdmin) {
+                nube.rol = 'admin';
+                // Deja su ficha para que aparezca con correo en la lista de capturistas
+                api.get(refYo).then(sn => { if (!sn.val()) return api.update(refYo, { email: user.email, nombre: user.email, aprobado: true }); }).catch(() => {});
+                configurarEscuchas(); return;
             }
-            if (puedeEditar()) {
-                nube.pub = null;
-                const llego = () => { if (nube.pub !== null && nube.priv !== null) { aplicarRemoto(); ofrecerSubida(); } };
-                const fallo = e => { nube.error = 'Error de lectura: ' + e.message; pintarBarra(); };
-                nube.bajas.push(api.onValue(api.ref(nube.rtdb, 'publico'), s => { nube.pub = s.val() || {}; llego(); }, fallo));
-                nube.bajas.push(api.onValue(api.ref(nube.rtdb, 'privado'), s => { nube.priv = s.val() || {}; llego(); }, fallo));
-            } else {
-                nube.pub = null; sondear();
-            }
-            aplicarModo();
+            // Anotador: su ficha dice si ya fue autorizado; se vigila para activar el permiso al momento
+            nube.rol = 'pendiente';
+            nube.rolBaja = api.onValue(refYo, sn => {
+                let v = sn.val();
+                if (!v) {   // primera vez que entra: se crea la solicitud
+                    api.update(refYo, { email: user.email, nombre: nube.nombrePend || user.email, aprobado: false, fecha: Date.now() })
+                        .catch(e => { nube.error = 'No se pudo registrar la solicitud: ' + e.message; pintarBarra(); });
+                    nube.nombrePend = '';
+                    return;
+                }
+                nube.nombre = v.nombre || user.email;
+                let rol = v.aprobado === true ? 'marcador' : 'pendiente';
+                if (rol !== nube.rol) { nube.rol = rol; configurarEscuchas(); } else pintarBarra();
+            }, () => {});
+            configurarEscuchas();
         });
     } catch (e) {
         console.error(e);
@@ -474,7 +573,18 @@ async function iniciarNube() {
     }
 }
 
+let loginRegistro = false;
+function modoLogin(reg) {
+    loginRegistro = reg;
+    document.getElementById('login_reg').style.display = reg ? '' : 'none';
+    document.getElementById('login_titulo').textContent = reg ? 'Nueva cuenta de anotador' : 'Acceso de capturistas';
+    document.getElementById('login_ok').textContent = reg ? 'Crear cuenta' : 'Entrar';
+    document.getElementById('login_modo').textContent = reg ? 'Ya tengo cuenta: entrar' : '¿Eres anotador nuevo? Crea tu cuenta';
+    document.getElementById('login_pass').autocomplete = reg ? 'new-password' : 'current-password';
+    document.getElementById('login_msg').textContent = '';
+}
 function abrirLogin() {
+    modoLogin(false);
     document.getElementById('login_msg').textContent = '';
     let m = document.getElementById('modal_login'); m.classList.remove('hidden'); m.classList.add('flex');
     document.getElementById('login_email').focus();
@@ -717,6 +827,7 @@ function openTab(tabName) {
     document.getElementById('btn_' + tabName).classList.add('active');
     if (categorias.includes(tabName)) { buildCategoriasDOM(tabName); updateStandings(tabName); }
     if (tabName === 'Jugadores') renderJugadores();
+    if (tabName === 'Capturistas') pintarCapturistas();
 }
 
 /* ---------- Datos de jugadores ---------- */
@@ -1057,7 +1168,11 @@ function buildCategoriasDOM(cat) {
     container.innerHTML = html;
     container.dataset.sig = firma(cat);
     // Modo consulta: nada se puede modificar
-    if (!puedeEditar()) container.querySelectorAll('input, select').forEach(el => { el.disabled = true; el.title = ''; });
+    if (!puedeEditar()) {
+        container.querySelectorAll('input, select').forEach(el => { el.disabled = true; el.title = ''; });
+        // Anotador autorizado: solo las casillas de marcador quedan activas
+        if (puedeMarcar()) container.querySelectorAll('.dyn-part').forEach(el => { el.disabled = false; });
+    }
 }
 
 /* ---------- Actualización de tablas y cuadro (sin reconstruir, para no perder el foco) ---------- */
@@ -1223,6 +1338,8 @@ document.addEventListener('click', e => {
     if (t.id === 'btn_login') { abrirLogin(); return; }
     if (t.id === 'btn_logout') { if (nube.api) nube.api.signOut(nube.auth); return; }
     if (t.id === 'login_cancel' || t.id === 'modal_login') { cerrarLogin(); return; }
+    if (t.id === 'login_modo') { e.preventDefault(); modoLogin(!loginRegistro); return; }
+    if (t.classList.contains('cap-btn')) { accionCapturista(t.dataset.acc, t.dataset.uid); return; }
     if (t.classList.contains('reset-cat-btn')) {
         if (confirm(`¿Borrar todos los marcadores de la categoría ${t.dataset.cat}? (Los nombres se conservan)`)) resetCat(t.dataset.cat);
     } else if (t.classList.contains('jug-cat-btn')) {
@@ -1271,9 +1388,26 @@ document.getElementById('form_login').addEventListener('submit', e => {
     e.preventDefault();
     let msg = document.getElementById('login_msg');
     if (!nube.api) { msg.textContent = 'No se pudo cargar el módulo de acceso. Revisa tu conexión y recarga la página.'; return; }
+    let email = document.getElementById('login_email').value.trim(), pass = document.getElementById('login_pass').value;
+    const listo = () => { document.getElementById('login_pass').value = ''; cerrarLogin(); };
+    if (loginRegistro) {
+        let nombre = document.getElementById('login_nombre').value.trim();
+        if (!nombre) { msg.textContent = 'Escribe tu nombre.'; return; }
+        if (pass.length < 6) { msg.textContent = 'La contraseña debe tener al menos 6 caracteres.'; return; }
+        msg.textContent = 'Creando cuenta…';
+        nube.nombrePend = nombre;
+        nube.api.createUserWithEmailAndPassword(nube.auth, email, pass).then(listo).catch(err => {
+            nube.nombrePend = '';
+            let c = (err && err.code) || '';
+            msg.textContent = c.includes('email-already-in-use') ? 'Ese correo ya tiene cuenta. Usa "Ya tengo cuenta: entrar".'
+                : c.includes('invalid-email') ? 'El correo no es válido.'
+                : c.includes('weak-password') ? 'La contraseña es demasiado corta.'
+                : 'No se pudo crear la cuenta. Intenta de nuevo.';
+        });
+        return;
+    }
     msg.textContent = 'Entrando…';
-    nube.api.signInWithEmailAndPassword(nube.auth, document.getElementById('login_email').value.trim(), document.getElementById('login_pass').value)
-        .then(() => { document.getElementById('login_pass').value = ''; cerrarLogin(); })
+    nube.api.signInWithEmailAndPassword(nube.auth, email, pass).then(listo)
         .catch(() => { msg.textContent = 'Correo o contraseña incorrectos.'; });
 });
 
