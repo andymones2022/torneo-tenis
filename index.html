@@ -152,13 +152,14 @@ function readJSON(key) {
 
 /* ---------- Base de datos ---------- */
 function initDB() {
-    let base = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, datos: {}, ajustes: { torneo: '', lada: '52' } };
+    let base = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, datos: {}, siembra: {}, ajustes: { torneo: '', lada: '52' } };
     categorias.forEach(c => {
         base.jugadores[c] = Array(MAX_PLAYERS).fill('');
         base.scores[c] = {};     // 'P_slotA_slotB' (grupos) y 'O1'..'F' (fase final)
         base.config[c] = 'auto';
         base.manual[c] = {};     // 'M1'.. -> slot del jugador elegido como mejor 3ro
         base.layout[c] = null;   // nº de grupos con el que se capturaron los marcadores
+        base.siembra[c] = null;  // orden de siembra ajustado a mano (lista de slots) o null = automático
         base.datos[c] = {};      // slot -> { tel, edad, email, utr, clasif, catRec, notas }
         base.formato[c] = { g: 'pro', f: 'pro' };  // formato de grupos (g) y fase final (f): 'pro' = 8 juegos, 'sets' = 2 de 3
     });
@@ -239,7 +240,7 @@ function loadDB() {
     if (d && d.jugadores) {
         let base = initDB();
         if (d.ajustes) Object.assign(base.ajustes, d.ajustes);
-        ['jugadores', 'scores', 'config', 'manual', 'layout', 'datos'].forEach(f => {
+        ['jugadores', 'scores', 'config', 'manual', 'layout', 'datos', 'siembra'].forEach(f => {
             categorias.forEach(c => { if (d[f] && d[f][c] !== undefined && d[f][c] !== null) base[f][c] = d[f][c]; });
         });
         categorias.forEach(c => {
@@ -285,12 +286,12 @@ let db = nube.activa ? initDB() : loadDB();
 
 /* Estructura en la nube:  publico/ (nombres, marcadores, formato)  y  privado/ (datos de contacto) */
 function toRemote(d) {
-    let pub = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, torneo: d.ajustes.torneo || '' };
+    let pub = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, siembra: {}, torneo: d.ajustes.torneo || '' };
     categorias.forEach(c => {
         pub.jugadores[c] = {};
         d.jugadores[c].forEach((n, i) => { if (n) pub.jugadores[c][i] = n; });
         pub.scores[c] = d.scores[c]; pub.config[c] = d.config[c]; pub.manual[c] = d.manual[c];
-        pub.layout[c] = d.layout[c]; pub.formato[c] = d.formato[c];
+        pub.layout[c] = d.layout[c]; pub.formato[c] = d.formato[c]; pub.siembra[c] = d.siembra[c];
     });
     return { publico: pub, privado: { datos: d.datos, lada: d.ajustes.lada } };
 }
@@ -316,6 +317,8 @@ function fromRemote(pub, priv) {
         let ly = obj(pub.layout)[c]; d.layout[c] = (ly === undefined || ly === null) ? null : ly;
         let f = obj(obj(pub.formato)[c]);
         d.formato[c] = { g: f.g === 'sets' ? 'sets' : 'pro', f: f.f === 'sets' ? 'sets' : 'pro' };
+        let sb = obj(pub.siembra)[c];
+        if (sb && typeof sb === 'object') { let arr = Object.keys(sb).sort((a, b) => a - b).map(k => parseInt(sb[k])); if (arr.length && arr.every(x => !isNaN(x))) d.siembra[c] = arr; }
         let dt = obj(obj(priv.datos)[c]);   // puede llegar como arreglo o como objeto
         Object.keys(dt).forEach(k => { if (dt[k] && typeof dt[k] === 'object') d.datos[c][k] = Object.assign({}, dt[k]); });
     });
@@ -683,32 +686,75 @@ function computeCat(cat) {
 }
 
 /* ---------- Definición de la fase final ---------- */
+/* Con 2, 4 y 8 grupos (sin terceros) los cruces son fijos entre grupos.
+   Con 3, 5, 6 y 7 grupos entran mejores terceros y el cuadro se arma por SIEMBRA:
+   el mejor clasificado contra el peor, el 2º contra el penúltimo, etc. */
+function usaSiembra(G) { return G === 3 || G === 5 || G === 6 || G === 7; }
+
 function getBracket(G) {
-    const g = (gi, p) => ({ t: 'g', g: gi, p }), m = k => ({ t: 'm', k }), w = k => ({ t: 'w', m: k });
+    const g = (gi, p) => ({ t: 'g', g: gi, p }), sd = n => ({ t: 's', n }), w = k => ({ t: 'w', m: k });
     const semis = { title: 'Semifinales', matches: [['S1', w('Q1'), w('Q2')], ['S2', w('Q3'), w('Q4')]] };
     const final = { title: 'Final', matches: [['F', w('S1'), w('S2')]] };
-    if (G >= 5) return [
+    const cuartosDe8 = { title: 'Cuartos', matches: [['Q1', w('O1'), w('O2')], ['Q2', w('O3'), w('O4')], ['Q3', w('O5'), w('O6')], ['Q4', w('O7'), w('O8')]] };
+    if (G === 8) return [
         { title: 'Octavos', matches: [
-            ['O1', g(0,0), G >= 8 ? g(7,1) : m('M1')],
-            ['O2', g(2,0), G >= 6 ? g(5,1) : m('M2')],
-            ['O3', g(4,0), g(3,1)],
-            ['O4', G >= 7 ? g(6,0) : m('M4'), g(1,1)],
-            ['O5', g(1,0), G >= 7 ? g(6,1) : m('M3')],
-            ['O6', g(3,0), g(4,1)],
-            ['O7', G >= 6 ? g(5,0) : m('M5'), g(2,1)],
-            ['O8', G >= 8 ? g(7,0) : m('M6'), g(0,1)] ] },
-        { title: 'Cuartos', matches: [['Q1', w('O1'), w('O2')], ['Q2', w('O3'), w('O4')], ['Q3', w('O5'), w('O6')], ['Q4', w('O7'), w('O8')]] },
-        semis, final ];
+            ['O1', g(0,0), g(7,1)], ['O2', g(2,0), g(5,1)], ['O3', g(4,0), g(3,1)], ['O4', g(6,0), g(1,1)],
+            ['O5', g(1,0), g(6,1)], ['O6', g(3,0), g(4,1)], ['O7', g(5,0), g(2,1)], ['O8', g(7,0), g(0,1)] ] },
+        cuartosDe8, semis, final ];
+    if (G >= 5) return [   // 16 sembrados: el 1 y el 2 solo pueden encontrarse en la final
+        { title: 'Octavos', matches: [
+            ['O1', sd(1), sd(16)], ['O2', sd(8), sd(9)], ['O3', sd(5), sd(12)], ['O4', sd(4), sd(13)],
+            ['O5', sd(6), sd(11)], ['O6', sd(3), sd(14)], ['O7', sd(7), sd(10)], ['O8', sd(2), sd(15)] ] },
+        cuartosDe8, semis, final ];
     if (G === 4) return [
         { title: 'Cuartos', matches: [['Q1', g(0,0), g(1,1)], ['Q2', g(2,0), g(3,1)], ['Q3', g(1,0), g(0,1)], ['Q4', g(3,0), g(2,1)]] },
         semis, final ];
-    if (G === 3) return [
-        { title: 'Cuartos', matches: [['Q1', g(0,0), m('M1')], ['Q2', g(1,0), g(2,1)], ['Q3', g(2,0), g(0,1)], ['Q4', g(1,1), m('M2')]] },
+    if (G === 3) return [   // 8 sembrados
+        { title: 'Cuartos', matches: [['Q1', sd(1), sd(8)], ['Q2', sd(4), sd(5)], ['Q3', sd(3), sd(6)], ['Q4', sd(2), sd(7)]] },
         semis, final ];
     if (G === 2) return [
         { title: 'Semifinales', matches: [['S1', g(0,0), g(1,1)], ['S2', g(1,0), g(0,1)]] },
         final ];
     return [];
+}
+
+/* Siembra: primeros, luego segundos, luego terceros (y cuartos si hacen falta). Dentro de cada
+   nivel se ordena por % de partidos ganados, % de juegos (o sets), y orden de inscripción.
+   Devuelve null mientras algún grupo no tenga ningún resultado. */
+function computeSeeds(cat, info) {
+    let G = info.numGroups;
+    if (!usaSiembra(G) || info.tables.some(t => t.played === 0)) return null;
+    let N = G >= 5 ? 16 : 8, half = N / 2, niveles = [];
+    info.tables.forEach((t, gi) => t.stats.forEach((st, pos) => {
+        (niveles[pos] = niveles[pos] || []).push({ slot: st.slot, nombre: st.nombre, gi, pos, pj: st.pj, pg: st.pg,
+            pctP: st.pj ? st.pg / st.pj * 100 : 0, pct: st.pct, pct_j: st.pct_j });
+    }));
+    const cmp = (a, b) => b.pctP - a.pctP || b.pct - a.pct || (info.setsG ? b.pct_j - a.pct_j : 0) || a.slot - b.slot;
+    let q = [];
+    for (let pos = 0; pos < niveles.length && q.length < N; pos++) q = q.concat(niveles[pos].slice().sort(cmp).slice(0, N - q.length));
+    let res = { N, prov: info.tables.some(t => t.played < t.total), manual: false, ajustado: false, orden: [] };
+    let ov = db.siembra[cat];
+    if (Array.isArray(ov) && ov.length === q.length && ov.every(sl => q.some(x => x.slot === sl)) && new Set(ov).size === ov.length) {
+        res.orden = ov.map(sl => q.find(x => x.slot === sl)); res.manual = true;
+    } else {
+        // Rival del sembrado i (mitad alta) = sembrado N+1-i (mitad baja). Si faltan jugadores, los mejores pasan directo.
+        let top = q.slice(0, half), low = q.slice(half);
+        let opp = top.map((_, i) => { let k = half - 1 - i; return k < low.length ? low[k] : null; });
+        // Se evita que dos jugadores del mismo grupo se enfrenten en la primera ronda
+        for (let i = 0; i < top.length; i++) {
+            if (!opp[i] || opp[i].gi !== top[i].gi) continue;
+            let js = top.map((_, j) => j).filter(j => j !== i).sort((a, b) => Math.abs(a - i) - Math.abs(b - i));
+            for (let j of js) {
+                let nuevoI = opp[j], nuevoJ = opp[i];
+                if (nuevoI && nuevoI.gi !== top[i].gi && nuevoJ.gi !== top[j].gi) { opp[i] = nuevoI; opp[j] = nuevoJ; res.ajustado = true; break; }
+            }
+        }
+        res.orden = top.slice();
+        for (let k = 0; k < half; k++) { let o = opp[half - 1 - k]; if (o !== undefined) res.orden.push(o); }
+        while (res.orden.length && res.orden[res.orden.length - 1] === null) res.orden.pop();
+    }
+    while (res.orden.length < N) res.orden.push(null);   // null = sin rival (pasa directo)
+    return res;
 }
 
 function manualKeys(G) {
@@ -720,6 +766,7 @@ function manualKeys(G) {
 function srcLabel(src) {
     if (src.t === 'g') return `${src.p + 1}º ${GROUP_NAMES[src.g]}`;
     if (src.t === 'w') return `Gan ${src.m}`;
+    if (src.t === 's') return `Sembrado ${src.n}`;
     return 'Mejor 3ro';
 }
 
@@ -735,27 +782,68 @@ function getCandidates(info) {
 
 /* Resuelve quién ocupa cada lugar del cuadro y quién gana cada partido */
 function resolveBracket(cat, info) {
-    let cands = getCandidates(info), winners = {}, sides = {};
+    let seeds = computeSeeds(cat, info), winners = {}, sides = {};
+    const BYE = { bye: true };
     const resolve = src => {
         if (src.t === 'g') {
             let t = info.tables[src.g];
             if (!t || t.played === 0 || !t.stats[src.p]) return null;
             return { slot: t.stats[src.p].slot, nombre: t.stats[src.p].nombre, prov: t.played < t.total };
         }
-        if (src.t === 'm') {
-            let slot = db.manual[cat][src.k];
-            let c = cands.find(x => x.slot === slot);
-            return c ? { slot: c.slot, nombre: c.nombre, prov: false } : null;
+        if (src.t === 's') {
+            if (!seeds) return null;
+            let x = seeds.orden[src.n - 1];
+            return x ? { slot: x.slot, nombre: x.nombre, prov: seeds.prov, de: `${x.pos + 1}º ${GROUP_NAMES[x.gi]}` } : BYE;
         }
         return winners[src.m] || null;
     };
     getBracket(info.numGroups).forEach(r => r.matches.forEach(([key, s1, s2]) => {
-        let a = resolve(s1), b = resolve(s2);
-        let res = info.setsF ? parseSets(db.scores[cat][key]) : parseGames(db.scores[cat][key]);
-        winners[key] = (a && b) ? (res.w === 1 ? a : (res.w === 2 ? b : null)) : null;
-        sides[key] = [a, b, res.w];
+        let a = resolve(s1), b = resolve(s2), w = 0, gana = null;
+        if (a && b) {
+            if (a.bye && b.bye) gana = BYE;
+            else if (a.bye) { gana = b; w = 2; }       // sin rival: pasa directo
+            else if (b.bye) { gana = a; w = 1; }
+            else {
+                let res = info.setsF ? parseSets(db.scores[cat][key]) : parseGames(db.scores[cat][key]);
+                w = res.w; gana = w === 1 ? a : (w === 2 ? b : null);
+            }
+        }
+        winners[key] = gana;
+        sides[key] = [a, b, w];
     }));
-    return { winners, sides, cands };
+    return { winners, sides, seeds };
+}
+
+function pintarSiembra(cat, info, seeds) {
+    let cont = document.getElementById(`siembra_${cat}`);
+    if (!cont) return;
+    if (!usaSiembra(info.numGroups)) { cont.innerHTML = ''; return; }
+    if (!seeds) { cont.innerHTML = `<p class="text-xs text-center text-gray-500 mb-3">La siembra se calcula cuando todos los grupos tengan resultados: el mejor clasificado juega contra el peor, el 2º contra el penúltimo, y así sucesivamente.</p>`; return; }
+    let u = info.setsG ? 'sets' : 'juegos';
+    let filas = seeds.orden.map((x, i) => {
+        if (!x) return `<tr class="border-b text-gray-400"><td class="p-1 border text-center">${i + 1}</td><td class="p-1 border" colspan="4">— sin jugador (su rival pasa directo)</td><td class="p-1 border solo-admin"></td></tr>`;
+        let ult = i === seeds.orden.length - 1 || !seeds.orden[i + 1];
+        return `<tr class="border-b"><td class="p-1 border text-center font-bold">${i + 1}</td>
+            <td class="p-1 border font-bold text-gray-700">${esc(x.nombre)}</td>
+            <td class="p-1 border text-center">${x.pos + 1}º ${GROUP_NAMES[x.gi]}</td>
+            <td class="p-1 border text-center">${x.pctP.toFixed(1)}%</td>
+            <td class="p-1 border text-center">${x.pct.toFixed(1)}%</td>
+            <td class="p-1 border text-center whitespace-nowrap solo-admin">
+                <button class="seed-btn px-2 rounded bg-gray-200 hover:bg-gray-300 ${i === 0 ? 'invisible' : ''}" data-cat="${cat}" data-i="${i}" data-d="-1" title="Subir un lugar">▲</button>
+                <button class="seed-btn px-2 rounded bg-gray-200 hover:bg-gray-300 ${ult ? 'invisible' : ''}" data-cat="${cat}" data-i="${i}" data-d="1" title="Bajar un lugar">▼</button>
+            </td></tr>`;
+    }).join('');
+    let nota = seeds.manual ? '<span class="text-amber-700 font-bold">Siembra ajustada a mano.</span>'
+        : (seeds.ajustado ? 'Se intercambiaron rivales para que dos jugadores del mismo grupo no se enfrenten en la primera ronda.' : '');
+    cont.innerHTML = `<details class="mb-4 border border-gray-200 rounded" ${seeds.manual || puedeEditar() ? 'open' : ''}>
+        <summary class="cursor-pointer text-sm font-bold text-green-800 bg-green-50 px-3 py-1 rounded">Siembra de la fase final${seeds.prov ? ' (provisional: faltan partidos de grupo)' : ''}</summary>
+        <div class="p-2 overflow-x-auto">
+            <p class="text-xs text-gray-600 mb-2">Orden: primeros de grupo, luego segundos, luego terceros; dentro de cada nivel por % de partidos ganados y % de ${u}. El sembrado 1 juega contra el último, el 2 contra el penúltimo, etc. ${nota}</p>
+            <table class="text-xs border-collapse mx-auto"><thead><tr class="bg-gray-100 text-gray-600">
+                <th class="p-1 border">Sembrado</th><th class="p-1 border text-left">Jugador</th><th class="p-1 border">Clasificó como</th><th class="p-1 border">% partidos</th><th class="p-1 border">% ${u}</th><th class="p-1 border solo-admin">Ajustar</th>
+            </tr></thead><tbody>${filas}</tbody></table>
+            ${seeds.manual ? `<div class="text-center mt-2 solo-admin"><button class="seed-reset px-3 py-1 rounded text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300" data-cat="${cat}">Restablecer siembra automática</button></div>` : ''}
+        </div></details>`;
 }
 
 /* ---------- Simulación ---------- */
@@ -767,7 +855,7 @@ function simularInscripciones() {
         let n = parseInt(document.getElementById('sim_' + cat).value) || 0;
         n = Math.max(0, Math.min(n, MAX_PLAYERS));
         db.jugadores[cat] = Array(MAX_PLAYERS).fill('');
-        db.scores[cat] = {}; db.manual[cat] = {}; db.layout[cat] = null;
+        db.scores[cat] = {}; db.manual[cat] = {}; db.layout[cat] = null; db.siembra[cat] = null;
         for (let i = 0; i < n; i++) db.jugadores[cat][i] = `Jug ${cat}-${i + 1}`;
     });
     saveDB(); renderInscripciones();
@@ -790,7 +878,7 @@ function simularMarcadores() {
     categorias.forEach(cat => {
         let info = computeCat(cat);
         if (info.N < 3) return;
-        db.scores[cat] = {}; db.manual[cat] = {};
+        db.scores[cat] = {}; db.manual[cat] = {}; db.siembra[cat] = null;
         info.groups.forEach(g => {
             for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) {
                 let key = pairKey(g[i], g[j]);
@@ -1148,6 +1236,7 @@ function buildCategoriasDOM(cat) {
         html += `<div class="bg-white p-4 rounded shadow mb-10 overflow-x-auto">
             <h3 class="font-bold text-xl text-center mb-2 text-green-700 bg-green-50 py-1 rounded">Fase Final - ${rounds[0].title} a Final</h3>
             ${nKeys ? `<p class="solo-admin text-xs text-center text-gray-600 mb-3">Las casillas amarillas son para elegir a los ${nKeys} mejores terceros${numGroups === 5 ? ' (con 5 grupos solo hay 5 terceros: el sexto lugar es para el mejor cuarto)' : ''}. La lista aparece ordenada por posición y porcentaje.</p>` : ''}
+            <div id="siembra_${cat}"></div>
             <div class="flex gap-4" style="min-width:${rounds.length * 250}px">`;
         rounds.forEach((r, ri) => {
             let isFinal = ri === rounds.length - 1;
@@ -1181,11 +1270,14 @@ function updateStandings(cat) {
     if (info.N < 3) return;
     let numGroups = info.numGroups;
 
+    let rb = numGroups > 1 ? resolveBracket(cat, info) : null;
+    let sembrados = rb && rb.seeds ? new Set(rb.seeds.orden.filter(x => x).map(x => x.slot)) : null;
+
     info.tables.forEach((t, gIdx) => {
         let tbody = document.getElementById(`std_${cat}_${GROUP_NAMES[gIdx]}`);
         if (!tbody) return;
         tbody.innerHTML = t.stats.map((j, i) => {
-            let clasifica = t.played > 0 && (numGroups === 1 ? i === 0 : i < 2);
+            let clasifica = t.played > 0 && (numGroups === 1 ? i === 0 : (sembrados ? sembrados.has(j.slot) : i < 2));
             return `<tr class="${clasifica ? 'win-row' : 'bg-white'} border-b">
                 <td class="p-1">${i + 1}</td><td class="p-1 text-left font-medium truncate max-w-[120px] text-gray-700" title="${esc(j.nombre)}">${esc(j.nombre)}</td>
                 <td class="p-1">${j.pj}</td><td class="p-1">${j.pg}</td><td class="p-1">${j.wg}</td><td class="p-1">${j.lg}</td><td class="p-1 font-bold text-green-800">${j.pct.toFixed(1)}%</td>
@@ -1203,9 +1295,9 @@ function updateStandings(cat) {
         return;
     }
 
-    let rb = resolveBracket(cat, info);
+    pintarSiembra(cat, info, rb.seeds);
 
-    // Listas de mejores terceros
+    // Listas de mejores terceros (ya no se usan: el cuadro se arma por siembra)
     let mKeys = manualKeys(numGroups);
     mKeys.forEach(k => {
         let sel = document.getElementById(`sel_${cat}_${k}`);
@@ -1213,7 +1305,7 @@ function updateStandings(cat) {
         let mine = db.manual[cat][k];
         let usados = mKeys.filter(x => x !== k).map(x => db.manual[cat][x]);
         let html = `<option value="">${puedeEditar() ? '— Elegir mejor 3ro —' : 'Mejor 3ro (por definir)'}</option>`;
-        rb.cands.forEach(c => {
+        (rb.cands || []).forEach(c => {
             if (usados.includes(c.slot)) return;
             html += `<option value="${c.slot}" ${c.slot === mine ? 'selected' : ''}>${c.pos + 1}º ${GROUP_NAMES[c.gi]} · ${esc(c.nombre)} (${c.pg} PG, ${c.pct.toFixed(1)}%)</option>`;
         });
@@ -1228,19 +1320,21 @@ function updateStandings(cat) {
             if (!el) return;
             let base = 'w-full text-xs truncate font-bold block ';
             if (!p) { el.textContent = srcLabel(src); el.title = ''; el.className = base + 'text-gray-400'; }
+            else if (p.bye) { el.textContent = '— sin rival (pasa directo)'; el.title = srcLabel(src); el.className = base + 'text-gray-400 italic'; }
             else {
-                el.textContent = p.nombre + (p.prov ? ' (prov.)' : '');
-                el.title = p.prov ? `${srcLabel(src)} provisional: el grupo aún no termina` : srcLabel(src);
+                let origen = srcLabel(src) + (p.de ? ' · ' + p.de : '');
+                el.textContent = (src.t === 's' ? `(${src.n}) ` : '') + p.nombre + (p.prov ? ' (prov.)' : '');
+                el.title = p.prov ? `${origen} · provisional: faltan partidos de grupo` : origen;
                 el.className = base + (p.prov ? 'text-gray-500 italic' : (a && b && w === n ? 'text-green-700' : 'text-gray-700'));
             }
         });
     }));
 
-    if (champEl) champEl.textContent = rb.winners['F'] ? rb.winners['F'].nombre : '-';
+    if (champEl) champEl.textContent = (rb.winners['F'] && !rb.winners['F'].bye) ? rb.winners['F'].nombre : '-';
 }
 
 function resetCat(cat) {
-    db.scores[cat] = {}; db.manual[cat] = {}; db.layout[cat] = null;
+    db.scores[cat] = {}; db.manual[cat] = {}; db.layout[cat] = null; db.siembra[cat] = null;
     saveDB(); buildCategoriasDOM(cat); updateStandings(cat);
 }
 
@@ -1339,6 +1433,17 @@ document.addEventListener('click', e => {
     if (t.id === 'btn_logout') { if (nube.api) nube.api.signOut(nube.auth); return; }
     if (t.id === 'login_cancel' || t.id === 'modal_login') { cerrarLogin(); return; }
     if (t.id === 'login_modo') { e.preventDefault(); modoLogin(!loginRegistro); return; }
+    if (t.classList.contains('seed-btn')) {
+        // Ajuste manual de la siembra: intercambia dos lugares contiguos
+        let cat = t.dataset.cat, i = parseInt(t.dataset.i), j = i + parseInt(t.dataset.d);
+        let seeds = computeSeeds(cat, computeCat(cat));
+        if (!seeds) return;
+        let slots = seeds.orden.filter(x => x).map(x => x.slot);
+        if (j < 0 || j >= slots.length) return;
+        [slots[i], slots[j]] = [slots[j], slots[i]];
+        db.siembra[cat] = slots; saveDB(); updateStandings(cat); return;
+    }
+    if (t.classList.contains('seed-reset')) { db.siembra[t.dataset.cat] = null; saveDB(); updateStandings(t.dataset.cat); return; }
     if (t.classList.contains('cap-btn')) { accionCapturista(t.dataset.acc, t.dataset.uid); return; }
     if (t.classList.contains('reset-cat-btn')) {
         if (confirm(`¿Borrar todos los marcadores de la categoría ${t.dataset.cat}? (Los nombres se conservan)`)) resetCat(t.dataset.cat);
