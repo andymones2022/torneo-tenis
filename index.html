@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Torneo Pro - Interfaz Horizontal</title>
+    <title>Torneos de Tenis</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; }
@@ -17,12 +17,14 @@
         .score-box.game { width: 2.1rem; font-size: 0.9rem; }
         .field:focus, .score-box:focus, select:focus { border-color: #16a34a; outline: none; box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.2); }
         /* Nombre editable dentro de los partidos */
-        .name-edit { width: 100%; min-width: 0; border: 1px dashed transparent; background: transparent; padding: 2px 4px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; color: #374151; text-overflow: ellipsis; }
+        .name-edit { display: block; width: 100%; min-width: 0; border: 1px dashed transparent; background: transparent; padding: 1px 3px; border-radius: 4px; font-size: 0.75rem; line-height: 1.15; font-weight: 700; color: #374151; font-family: inherit; resize: none; overflow: hidden; white-space: normal; overflow-wrap: anywhere; field-sizing: content; }
         .name-edit:hover { border-color: #9ca3af; background: #fff; }
         .name-edit:focus { border: 1px solid #16a34a; background: #fff; outline: none; box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.2); }
         /* Modo consulta (jugadores) y modo nube */
         body.viewer .solo-admin { display: none !important; }
         body.nube .solo-local { display: none !important; }
+        .fila-choque { background-color: #fee2e2 !important; }
+        @media print { .no-print, #tabs-nav, #barra_nube, h1 + p { display: none !important; } body { background: #fff; } }
         body:not(.nube) .solo-nube { display: none !important; }
         .score-box:disabled, .name-edit:disabled, select:disabled { opacity: 1; color: #374151; -webkit-text-fill-color: #374151; }
         .name-edit:disabled:hover { border-color: transparent; background: transparent; }
@@ -32,8 +34,8 @@
     </style>
 </head>
 <body>
-<div class="max-w-7xl mx-auto p-4">
-    <h1 class="text-3xl font-bold text-center text-green-700 mb-2">Torneo Multicategoría (Diseño Horizontal)</h1>
+<div class="mx-auto p-4" style="max-width:1800px">
+    <h1 id="titulo_h1" class="text-3xl font-bold text-center text-green-700 mb-2">Torneos de Tenis</h1>
     <p class="text-center text-sm text-gray-600 mb-6">Partidos a 8 juegos (7-7 se define con muerte súbita a 10 puntos y se anota 8-7). En cada categoría puedes cambiar a 2 de 3 sets. Los nombres se pueden corregir directamente en los partidos. (Usa ENTER para saltar)</p>
 
     <!-- Barra de estado de la nube (solo aparece si Firebase está configurado) -->
@@ -43,16 +45,19 @@
         <button id="btn_logout" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded font-bold" style="display:none">Salir</button>
     </div>
 
+    <div id="banner_hist" class="mb-3 p-3 rounded bg-amber-100 border border-amber-400 text-amber-900 text-sm font-bold flex flex-wrap items-center justify-center gap-3" style="display:none">
+        <span id="banner_hist_txt"></span>
+        <button class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded" onclick="salirHistorico()">← Volver al torneo en operación</button>
+    </div>
+
     <!-- Navegación -->
     <div class="flex flex-wrap border-b border-gray-300 mb-6" id="tabs-nav">
+        <button id="btn_Torneos" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Torneos')">🏆 Torneos</button>
         <button id="btn_Inscripciones" class="solo-admin tab-btn active px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Inscripciones')">📝 Inscripciones</button>
         <button id="btn_Jugadores" class="solo-admin tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Jugadores')">👥 Jugadores</button>
+ <button id="btn_Programacion" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Programacion')">📅 Programación</button>
         <button id="btn_Capturistas" class="solo-admin solo-nube tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Capturistas')">🔐 Capturistas <span id="badge_pend" class="bg-red-600 text-white text-xs font-bold rounded-full px-2" style="display:none"></span></button>
-        <button id="btn_AA" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('AA')">Cat AA</button>
-        <button id="btn_A" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('A')">Cat A</button>
-        <button id="btn_B" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('B')">Cat B</button>
-        <button id="btn_C" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('C')">Cat C</button>
-        <button id="btn_D" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('D')">Cat D</button>
+<span id="tabs-cats" style="display:contents"></span>
     </div>
 
     <!-- Pestaña Inscripciones -->
@@ -74,7 +79,7 @@
 
         <div class="bg-white p-6 rounded-lg shadow-md">
             <h2 class="text-xl font-bold text-green-700 mb-2">Registro de Jugadores (Máx 48)</h2>
-            <div class="grid grid-cols-1 md:grid-cols-5 gap-4" id="inscripciones-grid"></div>
+            <div class="grid gap-4" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))" id="inscripciones-grid"></div>
             <button onclick="limpiarDatos()" class="mt-6 w-full bg-red-600 text-white py-2 rounded hover:bg-red-700 transition font-bold shadow">Borrar Todos los Datos del Torneo</button>
         </div>
     </div>
@@ -82,15 +87,17 @@
     <!-- Pestaña Datos de Jugadores -->
     <div id="tab_Jugadores" class="tab-content"></div>
 
+    <!-- Pestaña Programación de horarios y asignación de canchas -->
+    <div id="tab_Programacion" class="tab-content"></div>
+
     <!-- Pestaña Capturistas (solo administradores, modo nube) -->
     <div id="tab_Capturistas" class="tab-content"></div>
 
     <!-- Contenedores Categorías -->
-    <div id="tab_AA" class="tab-content"></div>
-    <div id="tab_A" class="tab-content"></div>
-    <div id="tab_B" class="tab-content"></div>
-    <div id="tab_C" class="tab-content"></div>
-    <div id="tab_D" class="tab-content"></div>
+    <div id="cat-tabs"></div>
+
+    <!-- Pestaña Torneos: calendario anual y datos de cada torneo -->
+    <div id="tab_Torneos" class="tab-content"></div>
 </div>
 
 <!-- Ventana de envío de resultados -->
@@ -136,7 +143,9 @@ const firebaseConfig = {
 };
 const FB_VER = '12.7.0';
 
-const categorias = ['AA', 'A', 'B', 'C', 'D'];
+// Hasta 10 categorías. Las 5 primeras son las clásicas; cada torneo puede activar y nombrar las que use.
+const categorias = ['AA', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+const CATS_BASE = 5;
 const MAX_PLAYERS = 48;
 const GROUP_NAMES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 const STORE_KEY = 'torneoDinDB11';
@@ -152,19 +161,37 @@ function readJSON(key) {
 
 /* ---------- Base de datos ---------- */
 function initDB() {
-    let base = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, datos: {}, siembra: {}, ajustes: { torneo: '', lada: '52' } };
+    let base = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, datos: {}, siembra: {}, horario: {},
+        prog: { canchas: 'Cancha 1\nCancha 2', f1: '', f2: '', ini: '08:00', fin: '20:00', dur: 90, desc: 0, cats: {}, dias: {} }, ajustes: { torneo: '', lada: '52' },
+        torneos: {},   // calendario: id -> datos del torneo
+        activo: '',    // id del torneo en operación (al que pertenecen inscripciones y marcadores)
+        archivo: {} }; // inscripciones y marcadores guardados de los torneos que no están en operación
     categorias.forEach(c => {
         base.jugadores[c] = Array(MAX_PLAYERS).fill('');
         base.scores[c] = {};     // 'P_slotA_slotB' (grupos) y 'O1'..'F' (fase final)
         base.config[c] = 'auto';
         base.manual[c] = {};     // 'M1'.. -> slot del jugador elegido como mejor 3ro
         base.layout[c] = null;   // nº de grupos con el que se capturaron los marcadores
+        base.horario[c] = {};    // clave del partido -> { d: 'AAAA-MM-DD', h: 'HH:MM', c: 'cancha' }
+        base.prog.cats[c] = true;
         base.siembra[c] = null;  // orden de siembra ajustado a mano (lista de slots) o null = automático
         base.datos[c] = {};      // slot -> { tel, edad, email, utr, clasif, catRec, notas }
         base.formato[c] = { g: 'pro', f: 'pro' };  // formato de grupos (g) y fase final (f): 'pro' = 8 juegos, 'sets' = 2 de 3
     });
     return base;
 }
+
+function torneoAct() { return db.torneos[db.activo] || null; }
+/* Fechas y horario por día: los del torneo en operación, o los generales si no hay ninguno */
+function cal() { return torneoAct() || db.prog; }
+function catsActivas() {
+    let T = torneoAct();
+    if (T && T.cats) { let l = categorias.filter(c => T.cats[c] && T.cats[c].on); if (l.length) return l; }
+    return categorias.slice(0, CATS_BASE);
+}
+function catNombre(c) { let T = torneoAct(), n = T && T.cats && T.cats[c] && T.cats[c].nombre; return n ? String(n) : c; }
+function catTitulo(c) { let n = catNombre(c); return n === c ? 'Cat ' + c : n; }
+function catModo(c) { let T = torneoAct(); return (T && T.cats && T.cats[c] && T.cats[c].mod === 'D') ? 'D' : 'S'; }
 
 function hasScores(cat) { return Object.values(db.scores[cat]).some(v => v); }
 function isGroupKey(k) { return k.startsWith('P_'); }
@@ -240,7 +267,10 @@ function loadDB() {
     if (d && d.jugadores) {
         let base = initDB();
         if (d.ajustes) Object.assign(base.ajustes, d.ajustes);
-        ['jugadores', 'scores', 'config', 'manual', 'layout', 'datos', 'siembra'].forEach(f => {
+        ['torneos', 'archivo'].forEach(k => { if (d[k] && typeof d[k] === 'object') base[k] = d[k]; });
+        if (typeof d.activo === 'string') base.activo = d.activo;
+        if (d.prog) { let cats = Object.assign({}, base.prog.cats, d.prog.cats || {}); Object.assign(base.prog, d.prog); base.prog.cats = cats; }
+        ['jugadores', 'scores', 'config', 'manual', 'layout', 'datos', 'siembra', 'horario'].forEach(f => {
             categorias.forEach(c => { if (d[f] && d[f][c] !== undefined && d[f][c] !== null) base[f][c] = d[f][c]; });
         });
         categorias.forEach(c => {
@@ -279,21 +309,24 @@ const nube = {
     bajas: [], ofrecido: false, primeraVez: true, hora: '', error: ''
 };
 /* Administrador: puede todo.  Anotador autorizado: solo marcadores. */
-function puedeEditar() { return !nube.activa || nube.rol === 'admin'; }
-function puedeMarcar() { return puedeEditar() || nube.rol === 'marcador'; }
+let hist = null;   // {id, real}: se está consultando un torneo ya guardado (solo lectura)
+function puedeEditar() { return !hist && (!nube.activa || nube.rol === 'admin'); }
+function puedeMarcar() { return !hist && (!nube.activa || nube.rol === 'admin' || nube.rol === 'marcador'); }
 
 let db = nube.activa ? initDB() : loadDB();
 
 /* Estructura en la nube:  publico/ (nombres, marcadores, formato)  y  privado/ (datos de contacto) */
 function toRemote(d) {
-    let pub = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, siembra: {}, torneo: d.ajustes.torneo || '' };
+    let pub = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, siembra: {}, horario: {}, prog: d.prog, torneo: d.ajustes.torneo || '', torneos: d.torneos, activo: d.activo };
     categorias.forEach(c => {
         pub.jugadores[c] = {};
         d.jugadores[c].forEach((n, i) => { if (n) pub.jugadores[c][i] = n; });
         pub.scores[c] = d.scores[c]; pub.config[c] = d.config[c]; pub.manual[c] = d.manual[c];
-        pub.layout[c] = d.layout[c]; pub.formato[c] = d.formato[c]; pub.siembra[c] = d.siembra[c];
+        pub.layout[c] = d.layout[c]; pub.formato[c] = d.formato[c]; pub.siembra[c] = d.siembra[c]; pub.horario[c] = d.horario[c];
     });
-    return { publico: pub, privado: { datos: d.datos, lada: d.ajustes.lada } };
+    pub.archivo = {}; let adat = {};
+    Object.keys(d.archivo || {}).forEach(id => { let a = d.archivo[id]; if (a && a.pub) { pub.archivo[id] = a.pub; if (a.datos) adat[id] = a.datos; } });
+    return { publico: pub, privado: { datos: d.datos, lada: d.ajustes.lada, archivoDatos: adat } };
 }
 function flatten(o, pre, out) {
     Object.keys(o).forEach(k => {
@@ -319,15 +352,30 @@ function fromRemote(pub, priv) {
         d.formato[c] = { g: f.g === 'sets' ? 'sets' : 'pro', f: f.f === 'sets' ? 'sets' : 'pro' };
         let sb = obj(pub.siembra)[c];
         if (sb && typeof sb === 'object') { let arr = Object.keys(sb).sort((a, b) => a - b).map(k => parseInt(sb[k])); if (arr.length && arr.every(x => !isNaN(x))) d.siembra[c] = arr; }
+        let hr = obj(obj(pub.horario)[c]);
+        Object.keys(hr).forEach(k => { let v = hr[k]; if (v && typeof v === 'object') d.horario[c][k] = { d: String(v.d || ''), h: String(v.h || ''), c: String(v.c || '') }; });
         let dt = obj(obj(priv.datos)[c]);   // puede llegar como arreglo o como objeto
         Object.keys(dt).forEach(k => { if (dt[k] && typeof dt[k] === 'object') d.datos[c][k] = Object.assign({}, dt[k]); });
     });
+    let pg = obj(pub.prog);
+    ['canchas', 'f1', 'f2', 'ini', 'fin'].forEach(k => { if (pg[k] !== undefined && pg[k] !== null) d.prog[k] = String(pg[k]); });
+    if (pg.dur) d.prog.dur = parseInt(pg.dur) || 90;
+    d.prog.desc = parseInt(pg.desc) || 0;
+    categorias.forEach(c => { if (obj(pg.cats)[c] === false) d.prog.cats[c] = false; });
+    const copia = x => JSON.parse(JSON.stringify(x));
+    d.prog.dias = copia(obj(pg.dias));
+    d.torneos = copia(obj(pub.torneos));
+    d.activo = pub.activo ? String(pub.activo) : '';
+    let ap = obj(pub.archivo), ad = obj(priv.archivoDatos), al = obj(priv.archivo);
+    Object.keys(al).forEach(id => { if (al[id] && al[id].pub && !ap[id]) d.archivo[id] = copia(al[id]); });   // compatibilidad con la versión anterior
+    Object.keys(ap).forEach(id => { if (!Object.keys(flatten(obj(ap[id]), '', {})).length) return; d.archivo[id] = { pub: copia(ap[id]), datos: copia(obj(ad[id])) }; });
     d.ajustes.torneo = pub.torneo || '';
     if (priv.lada) d.ajustes.lada = String(priv.lada);
     return d;
 }
 
 function saveDB() {
+    if (hist) return;
     if (!nube.activa) {
         try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); }
         catch (e) { console.error('No se pudo guardar en la memoria del navegador', e); }
@@ -352,15 +400,27 @@ function saveDB() {
 
 function tabActiva() { return document.querySelector('.tab-content.active').id.replace('tab_', ''); }
 
+/* Botones de las categorías del torneo en operación, y título de la página */
+function pintarTabs() {
+    let act = tabActiva(), activas = catsActivas();
+    document.getElementById('tabs-cats').innerHTML = activas.map(c =>
+        `<button id="btn_${c}" class="tab-btn ${c === act ? 'active' : ''} px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('${c}')">${esc(catTitulo(c))}${catModo(c) === 'D' ? ' <span class="text-xs text-gray-400">dobles</span>' : ''}</button>`).join('');
+    let titulo = (db.ajustes.torneo || '').trim() || 'Torneos de Tenis';
+    document.getElementById('titulo_h1').textContent = titulo;
+    document.title = titulo;
+    if (categorias.includes(act) && !activas.includes(act)) openTab(activas[0]);
+}
+
 /* Llegaron datos de la nube: se actualiza la pantalla sin quitar el foco de la casilla en uso */
 function aplicarRemoto() {
+    if (hist) return;   // mientras se consulta un torneo guardado no se toca la pantalla
     db = fromRemote(nube.pub, puedeEditar() ? nube.priv : null);
     let hojas = flatten(toRemote(db), '', {});
     if (!puedeEditar()) Object.keys(hojas).forEach(k => { if (k.startsWith('privado/')) delete hojas[k]; });
     nube.lastSync = hojas;
     let d = new Date(); nube.hora = d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
     nube.error = '';
-    let con = categorias.find(c => getActivos(db, c).length);
+    let con = catsActivas().find(c => getActivos(db, c).length);
     if (nube.primeraVez && con) {
         // Primera vez que llegan jugadores: se abre la primera categoría que tenga inscritos
         nube.primeraVez = false;
@@ -373,15 +433,17 @@ function aplicarRemoto() {
 function firma(cat) {
     let info = computeCat(cat);
     return JSON.stringify([getActivos(db, cat).map(p => p.slot), db.config[cat], db.formato[cat], info.numGroups,
-        hasScores(cat) && db.layout[cat] != null && db.layout[cat] !== info.numGroups, nube.rol]);
+        hasScores(cat) && db.layout[cat] != null && db.layout[cat] !== info.numGroups, nube.rol, db.horario[cat]]);
 }
 
 function refrescarUI(forzar) {
+    pintarTabs();
     let act = tabActiva(), ae = document.activeElement;
     if (categorias.includes(act)) {
         let cont = document.getElementById('tab_' + act);
         if (forzar || cont.dataset.sig !== firma(act)) { buildCategoriasDOM(act); updateStandings(act); return; }
         cont.querySelectorAll('.name-edit').forEach(el => { if (el !== ae) el.value = db.jugadores[act][parseInt(el.dataset.slot)] || ''; });
+        autoAlto(cont);
         cont.querySelectorAll('.match-container').forEach(mc => {
             let val = db.scores[act][mc.dataset.key] || '';
             if (mc.dataset.sets === 'true') {
@@ -397,6 +459,10 @@ function refrescarUI(forzar) {
         document.querySelectorAll('.nombres-input').forEach(el => { if (el !== ae) el.value = db.jugadores[el.dataset.cat][parseInt(el.dataset.idx)] || ''; });
     } else if (act === 'Capturistas') {
         pintarCapturistas();
+    } else if (act === 'Torneos') {
+        if (forzar || !document.getElementById('tab_Torneos').contains(ae)) renderTorneos();
+    } else if (act === 'Programacion') {
+        if (forzar || !document.getElementById('tab_Programacion').contains(ae)) renderProg();
     } else if (act === 'Jugadores') {
         let cont = document.getElementById('tab_Jugadores');
         if (forzar || !cont.contains(ae)) renderJugadores();
@@ -427,7 +493,7 @@ function aplicarModo() {
     document.body.classList.toggle('viewer', !puedeEditar());
     pintarBarra();
     let act = tabActiva();
-    if (!puedeEditar() && !categorias.includes(act)) openTab(categorias.find(c => getActivos(db, c).length) || categorias[0]);
+    if (!puedeEditar() && !categorias.includes(act) && act !== 'Programacion' && act !== 'Torneos') openTab(catsActivas().find(c => getActivos(db, c).length) || 'Torneos');
     else refrescarUI(true);
 }
 
@@ -852,10 +918,11 @@ function simularInscripciones() {
     if (hayReales && !confirm('Esto reemplaza TODOS los nombres, datos de contacto y marcadores por jugadores de prueba. ¿Continuar?')) return;
     categorias.forEach(cat => {
         db.datos[cat] = {};
-        let n = parseInt(document.getElementById('sim_' + cat).value) || 0;
+        let simEl = document.getElementById('sim_' + cat);
+        let n = simEl ? (parseInt(simEl.value) || 0) : 0;
         n = Math.max(0, Math.min(n, MAX_PLAYERS));
         db.jugadores[cat] = Array(MAX_PLAYERS).fill('');
-        db.scores[cat] = {}; db.manual[cat] = {}; db.layout[cat] = null; db.siembra[cat] = null;
+        db.scores[cat] = {}; db.manual[cat] = {}; db.layout[cat] = null; db.siembra[cat] = null; db.horario[cat] = {};
         for (let i = 0; i < n; i++) db.jugadores[cat][i] = `Jug ${cat}-${i + 1}`;
     });
     saveDB(); renderInscripciones();
@@ -901,9 +968,9 @@ function simularMarcadores() {
 function renderInscripciones() {
     const grid = document.getElementById('inscripciones-grid');
     let html = '';
-    categorias.forEach(cat => {
-        html += `<div class="border rounded p-2 bg-gray-50"><h3 class="font-bold text-center bg-gray-200 text-gray-700 py-1 mb-2 rounded shadow-sm">Cat. ${cat}</h3><div class="max-h-96 overflow-y-auto px-1">`;
-        for (let i = 0; i < MAX_PLAYERS; i++) html += `<input type="text" class="field mb-1 text-xs nombres-input" data-cat="${cat}" data-idx="${i}" value="${esc(db.jugadores[cat][i])}" placeholder="${i + 1}. Jugador/Pareja">`;
+    catsActivas().forEach(cat => {
+        html += `<div class="border rounded p-2 bg-gray-50"><h3 class="font-bold text-center bg-gray-200 text-gray-700 py-1 mb-2 rounded shadow-sm">${esc(catTitulo(cat))}</h3><div class="max-h-96 overflow-y-auto px-1">`;
+        for (let i = 0; i < MAX_PLAYERS; i++) html += `<input type="text" class="field mb-1 text-xs nombres-input" data-cat="${cat}" data-idx="${i}" value="${esc(db.jugadores[cat][i])}" placeholder="${i + 1}. ${catModo(cat) === 'D' ? 'Pareja' : 'Jugador'}">`;
         html += `</div></div>`;
     });
     grid.innerHTML = html;
@@ -912,10 +979,547 @@ function renderInscripciones() {
 function openTab(tabName) {
     document.querySelectorAll('.tab-content, .tab-btn').forEach(el => el.classList.remove('active'));
     document.getElementById('tab_' + tabName).classList.add('active');
-    document.getElementById('btn_' + tabName).classList.add('active');
+    let boton = document.getElementById('btn_' + tabName);
+    if (boton) boton.classList.add('active');
+    if (tabName === 'Torneos') renderTorneos();
     if (categorias.includes(tabName)) { buildCategoriasDOM(tabName); updateStandings(tabName); }
     if (tabName === 'Jugadores') renderJugadores();
     if (tabName === 'Capturistas') pintarCapturistas();
+    if (tabName === 'Programacion') renderProg();
+}
+
+/* ---------- Torneos: calendario anual y datos de cada torneo ---------- */
+const TIPOS_TORNEO = ['Interno (socios del club)', 'Open (con invitados de otros clubes)', 'Dual meet', 'Interclubes', 'Avante (dobles femenil)', 'Regional', 'Nacional', 'UTR', 'Otro'];
+const ESTADOS_TORNEO = ['Propuesto', 'Confirmado', 'Inscripciones abiertas', 'En curso', 'Terminado', 'Cancelado'];
+const DIAS_LARGOS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+let torEdit = '', torAnio = '';
+
+function diasEntre(f1, f2) {
+    let out = [];
+    if (!f1 || !f2 || f2 < f1) return out;
+    for (let i = 0; i < 62; i++) { let f = sumaDias(f1, i); if (f > f2) break; out.push(f); }
+    return out;
+}
+function fechaISO(x) { return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); }
+function rangoFechas(T) {
+    if (!T.f1) return 'Fecha por definir';
+    let a = fechaCorta(T.f1), anio = T.f1.slice(0, 4);
+    return (T.f2 && T.f2 !== T.f1) ? `${a} – ${fechaCorta(T.f2)} ${anio}` : `${a} ${anio}`;
+}
+function catsDefault() {
+    let o = {};
+    categorias.forEach((c, i) => { o[c] = { on: i < CATS_BASE, nombre: i < CATS_BASE ? c : '', mod: 'S' }; });
+    return o;
+}
+function nuevoTorneo(datos) {
+    let id = 't' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
+    db.torneos[id] = Object.assign({ nombre: 'Nuevo torneo', tipo: TIPOS_TORNEO[0], estado: 'Propuesto', sede: '', f1: '', f2: '', cierre: '',
+        sing: true, dob: false, coop: '', coopNota: 'por jugador', cupo: '', org: '', tel: '', invitados: '',
+        trofeos: true, recSemi: false, recJug: false, premioOtro: '', notas: '', cats: catsDefault(), dias: {} }, datos || {});
+    return id;
+}
+
+/* Calendario sugerido: el fin de semana (viernes a domingo) más cercano a cada fecha conmemorativa */
+function calendarioSugerido(anio) {
+    const finde = (mes, dia) => {
+        let x = new Date(anio, mes - 1, dia, 12), dow = x.getDay();           // sábado más cercano
+        let delta = dow === 6 ? 0 : (dow <= 2 ? -(dow + 1) : 6 - dow);
+        x.setDate(x.getDate() + delta);
+        let v = new Date(x), d = new Date(x); v.setDate(x.getDate() - 1); d.setDate(x.getDate() + 1);
+        return [fechaISO(v), fechaISO(d)];
+    };
+    let padre = new Date(anio, 5, 1, 12); padre.setDate(1 + ((7 - padre.getDay()) % 7) + 14);   // tercer domingo de junio
+    let lista = [
+        ['Torneo del Amor y la Amistad', finde(2, 14), 0], ['Torneo del Día del Niño', finde(4, 30), 0], ['Torneo del Día de la Madre', finde(5, 10), 0],
+        ['Torneo del Día del Padre', finde(6, padre.getDate()), 0], ['Torneo de Fiestas Patrias (Independencia)', finde(9, 16), 0],
+        ['Torneo del Día de Muertos', finde(11, 2), 0], ['Torneo de la Revolución', finde(11, 20), 0], ['Torneo del Pavo', finde(12, 13), 0],
+        ['Dual meet', null, 2], ['Interclubes', null, 3], ['Avante', null, 4], ['Torneo Regional', null, 5], ['Torneo Nacional', null, 6], ['Torneo UTR', null, 7]
+    ];
+    let n = 0;
+    lista.forEach(([nombre, fechas, tipo]) => {
+        let ya = Object.values(db.torneos).some(T => T.nombre === nombre && (!fechas || (T.f1 || '').slice(0, 4) === String(anio)));
+        if (ya) return;
+        let d = { nombre, tipo: TIPOS_TORNEO[tipo], notas: fechas ? '' : `Fecha por definir (${anio})` };
+        if (fechas) { d.f1 = fechas[0]; d.f2 = fechas[1]; d.cierre = sumaDias(fechas[0], -3) + 'T20:00'; }
+        if (tipo === 4) { d.sing = false; d.dob = true; d.coopNota = 'por pareja'; }
+        nuevoTorneo(d); n++;
+    });
+    return n;
+}
+
+/* Conjunto de trabajo: lo que pertenece a un torneo concreto (inscripciones, marcadores, horarios, datos de contacto) */
+const CAMPOS_TRABAJO = ['jugadores', 'scores', 'config', 'manual', 'layout', 'formato', 'siembra', 'horario', 'datos'];
+const CAMPOS_PROG = ['canchas', 'ini', 'fin', 'dur', 'desc', 'cats'];
+function copiarTrabajo(desde) {
+    CAMPOS_TRABAJO.forEach(k => { db[k] = desde[k]; });
+    CAMPOS_PROG.forEach(k => { db.prog[k] = desde.prog[k]; });
+}
+function vaciarTrabajo() { copiarTrabajo(initDB()); }
+function fotoTrabajo() {
+    let r = toRemote(db), pub = { prog: {} };
+    ['jugadores', 'scores', 'config', 'manual', 'layout', 'formato', 'siembra', 'horario'].forEach(k => { pub[k] = r.publico[k]; });
+    CAMPOS_PROG.forEach(k => { pub.prog[k] = db.prog[k]; });
+    return JSON.parse(JSON.stringify({ pub, datos: r.privado.datos }));
+}
+function hayTrabajo() { return categorias.some(c => getActivos(db, c).length); }
+
+/* Consulta de un torneo ya guardado: solo lectura, con sus categorías, grupos, marcadores y fase final */
+function verHistorico(id) {
+    let T = db.torneos[id], a = db.archivo[id];
+    if (!T || !a || hist) return;
+    let real = db, v = fromRemote(a.pub, { datos: a.datos || {} });
+    v.torneos = real.torneos; v.activo = id; v.archivo = real.archivo;
+    v.ajustes = Object.assign({}, real.ajustes, { torneo: T.nombre || '' });
+    hist = { id, real }; db = v;
+    document.getElementById('banner_hist_txt').textContent = `📚 Consultando resultados guardados de: ${T.nombre || '(sin nombre)'}${T.f1 ? ' · ' + rangoFechas(T) : ''} — solo lectura`;
+    document.getElementById('banner_hist').style.display = 'flex';
+    aplicarModo();
+    pintarTabs();
+    openTab(catsActivas().find(c => getActivos(db, c).length) || catsActivas()[0]);
+    window.scrollTo(0, 0);
+}
+function salirHistorico() {
+    if (!hist) return;
+    db = hist.real; hist = null;
+    document.getElementById('banner_hist').style.display = 'none';
+    if (nube.activa && nube.pub) aplicarRemoto();
+    aplicarModo(); pintarTabs(); openTab('Torneos');
+}
+
+/* Guarda lo capturado del torneo en operación en el histórico y deja todo en blanco */
+function guardarEnHistorico(id) {
+    if (!db.torneos[id]) return;
+    db.archivo[id] = fotoTrabajo();
+    if (db.torneos[id].estado !== 'Cancelado') db.torneos[id].estado = 'Terminado';
+    vaciarTrabajo();
+}
+function terminarTorneo() {
+    let T = torneoAct();
+    if (!T || hist) return;
+    if (!confirm(`¿Dar por terminado "${T.nombre}"?\n\nSus inscripciones y resultados se guardan en el histórico (todos podrán consultarlos en la pestaña Torneos) y la captura queda en blanco para el siguiente torneo.`)) return;
+    guardarEnHistorico(db.activo);
+    db.activo = ''; db.ajustes.torneo = '';
+    saveDB(); pintarTabs(); renderTorneos();
+}
+
+/* Pone un torneo "en operación": sus inscripciones y marcadores pasan a ser los que se ven y capturan */
+function activarTorneo(id) {
+    let T = db.torneos[id];
+    if (!T || db.activo === id || hist) return;
+    let anterior = torneoAct();
+    let previo = '';   // torneo pasado al que pertenece lo capturado antes de usar el calendario
+    let texto;
+    if (anterior) texto = `¿Poner en operación "${T.nombre}"?\n\nLos resultados de "${anterior.nombre}" se guardan en el histórico (podrán consultarse en la pestaña Torneos).` + (db.archivo[id] ? `\n\nSe recuperan las inscripciones y marcadores que ya tenía "${T.nombre}".` : `\n\n"${T.nombre}" empieza en blanco.`);
+    else texto = `¿Poner en operación "${T.nombre}"?`;
+    if (!confirm(texto)) return;
+    if (!anterior && hayTrabajo()) {
+        if (!confirm(`Hay inscripciones y marcadores capturados que no están ligados a ningún torneo del calendario.\n\nAceptar = pertenecen a "${T.nombre}" y se quedan.\nCancelar = son de un torneo anterior: se guardan en el histórico y "${T.nombre}" empieza en blanco.`)) {
+            previo = (prompt('¿Cómo se llamó ese torneo anterior?', 'Torneo anterior') || '').trim() || 'Torneo anterior';
+        }
+    }
+    if (previo) {
+        let pid = nuevoTorneo({ nombre: previo, estado: 'Terminado', notas: 'Guardado automáticamente al activar otro torneo' });
+        guardarEnHistorico(pid);
+    } else if (anterior) {
+        guardarEnHistorico(db.activo);
+    }
+    if (db.archivo[id]) {   // torneo ya trabajado antes: se recupera
+        copiarTrabajo(fromRemote(db.archivo[id].pub, { datos: db.archivo[id].datos }));
+        delete db.archivo[id];
+        if (T.estado === 'Terminado') T.estado = 'En curso';
+    } else if (anterior || previo) vaciarTrabajo();
+    db.activo = id;
+    db.ajustes.torneo = T.nombre || '';
+    saveDB(); pintarTabs(); renderTorneos();
+}
+
+/* Tabla para indicar qué días se juega y con qué horario */
+function editorDias(tid) {
+    let O = tid ? db.torneos[tid] : db.prog;
+    if (!O) return '';
+    let lista = diasEntre(O.f1, O.f2);
+    if (!lista.length) return '<p class="text-xs text-gray-500">Indica la fecha de inicio y la fecha final para definir el horario de cada día.</p>';
+    let dias = O.dias || {};
+    return `<div class="overflow-x-auto"><table class="text-xs border-collapse"><thead><tr class="bg-gray-100 text-gray-600">
+        <th class="p-1 border">Día</th><th class="p-1 border">¿Se juega?</th><th class="p-1 border">Primer partido</th><th class="p-1 border">Límite para iniciar el último</th><th class="p-1 border">Turnos</th></tr></thead><tbody>` +
+        lista.map(f => {
+            let d = dias[f] || {}, on = d.on !== false, x = new Date(f + 'T12:00:00');
+            const inp = (campo, ph) => `<input type="time" class="dia-input border rounded p-1 text-xs" data-tid="${esc(tid || '')}" data-fecha="${f}" data-campo="${campo}" value="${esc(d[campo] || '')}" ${on ? '' : 'disabled'} title="Vacío = horario general (${ph})">`;
+            return `<tr class="border-b ${on ? '' : 'text-gray-400'}"><td class="p-1 border font-bold capitalize">${DIAS_LARGOS[x.getDay()]} ${x.getDate()} ${MESES[x.getMonth()]}</td>
+                <td class="p-1 border text-center"><input type="checkbox" class="dia-input" data-tid="${esc(tid || '')}" data-fecha="${f}" data-campo="on" ${on ? 'checked' : ''}></td>
+                <td class="p-1 border">${inp('ini', db.prog.ini)}</td><td class="p-1 border">${inp('fin', db.prog.fin)}</td>
+                <td class="p-1 border text-center">${on ? (tid === db.activo || !tid ? turnosDelDia(f).length : '') : '—'}</td></tr>`;
+        }).join('') + `</tbody></table></div><p class="text-xs text-gray-500 mt-1">Si dejas una hora vacía se usa el horario general de la pestaña Programación (${esc(db.prog.ini)} a ${esc(db.prog.fin)}).</p>`;
+}
+
+function renderTorneos() {
+    const cont = document.getElementById('tab_Torneos');
+    let admin = puedeEditar(), hoy = new Date();
+    let anioSug = hoy.getMonth() >= 9 ? hoy.getFullYear() + 1 : hoy.getFullYear();
+    let ids = Object.keys(db.torneos);
+    let anios = Array.from(new Set(ids.map(i => (db.torneos[i].f1 || '').slice(0, 4)).filter(x => x))).sort();
+    if (torAnio && !anios.includes(torAnio)) torAnio = '';
+    let html = '';
+
+    // ----- Formulario de edición -----
+    let T = admin ? db.torneos[torEdit] : null;
+    if (T) {
+        const v = k => esc(T[k] == null ? '' : T[k]);
+        const txt = (k, ph, tipo) => `<input type="${tipo || 'text'}" class="field tor-input" data-id="${torEdit}" data-campo="${k}" value="${v(k)}" placeholder="${ph || ''}">`;
+        const sel = (k, ops) => `<select class="field tor-input" data-id="${torEdit}" data-campo="${k}">${ops.map(o => `<option ${T[k] === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+        const chk = (k, etiqueta) => `<label class="flex items-center gap-2 text-sm"><input type="checkbox" class="tor-input" data-id="${torEdit}" data-campo="${k}" ${T[k] ? 'checked' : ''}> ${etiqueta}</label>`;
+        const lab = t => `<label class="text-xs font-semibold text-gray-600">${t}</label>`;
+        let cats = T.cats || {};
+        html += `<div class="bg-white p-4 rounded-lg shadow-md mb-4 border-l-4 border-green-600">
+            <div class="flex justify-between items-center mb-3"><h2 class="text-xl font-bold text-green-700">Datos del torneo</h2>
+                <button class="tor-btn bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded text-sm font-bold" data-acc="cerrar">Cerrar</button></div>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div class="md:col-span-2">${lab('Nombre del torneo')}${txt('nombre')}</div>
+                <div>${lab('Tipo')}${sel('tipo', TIPOS_TORNEO)}</div>
+                <div>${lab('Estado')}${sel('estado', ESTADOS_TORNEO)}</div>
+                <div>${lab('Fecha de inicio (desde qué día)')}${txt('f1', '', 'date')}</div>
+                <div>${lab('Fecha final (hasta qué día)')}${txt('f2', '', 'date')}</div>
+                <div>${lab('Cierre de inscripciones (fecha y hora)')}${txt('cierre', '', 'datetime-local')}</div>
+                <div>${lab('Sede / lugar')}${txt('sede', 'Ej. Canchas del club')}</div>
+                <div>${lab('Cooperación ($)')}${txt('coop', 'Ej. 350', 'number')}</div>
+                <div>${lab('La cooperación es…')}${txt('coopNota', 'por jugador / por pareja / incluye playera')}</div>
+                <div>${lab('Cupo máximo por categoría')}${txt('cupo', 'Ej. 24', 'number')}</div>
+                <div>${lab('Modalidad')}<div class="flex gap-4 mt-1">${chk('sing', 'Singles')}${chk('dob', 'Dobles')}</div></div>
+                <div>${lab('Organizador / contacto')}${txt('org', 'Nombre')}</div>
+                <div>${lab('Teléfono de contacto')}${txt('tel', '10 dígitos')}</div>
+                <div class="md:col-span-2">${lab('Clubes invitados (para torneos open, dual meet o interclubes)')}${txt('invitados')}</div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div><div class="text-sm font-bold text-green-800 mb-1">Premios y reconocimientos</div>
+                    ${chk('trofeos', 'Trofeos a primer y segundo lugar')}${chk('recSemi', 'Reconocimiento a semifinalistas')}${chk('recJug', 'Reconocimiento a todos los jugadores')}
+                    <div class="mt-2">${lab('Otros premios (rifa, pavo, productos, puntos…)')}${txt('premioOtro')}</div>
+                    <div class="mt-2">${lab('Notas')}<textarea class="field tor-input text-sm" rows="2" data-id="${torEdit}" data-campo="notas">${v('notas')}</textarea></div>
+                </div>
+                <div><div class="text-sm font-bold text-green-800 mb-1">Categorías (hasta ${categorias.length})</div>
+                    <table class="text-xs border-collapse w-full"><thead><tr class="bg-gray-100 text-gray-600"><th class="p-1 border">Usar</th><th class="p-1 border text-left">Nombre de la categoría</th><th class="p-1 border">Modalidad</th></tr></thead><tbody>
+                    ${categorias.map(c => { let k = cats[c] || {}; return `<tr><td class="p-1 border text-center"><input type="checkbox" class="tor-cat" data-id="${torEdit}" data-cat="${c}" data-campo="on" ${k.on ? 'checked' : ''}></td>
+                        <td class="p-1 border"><input type="text" class="tor-cat border rounded p-1 w-full text-xs" data-id="${torEdit}" data-cat="${c}" data-campo="nombre" value="${esc(k.nombre || '')}" placeholder="Ej. Varonil A, Femenil, Infantil 10 años"></td>
+                        <td class="p-1 border"><select class="tor-cat border rounded p-1 text-xs" data-id="${torEdit}" data-cat="${c}" data-campo="mod"><option value="S" ${k.mod !== 'D' ? 'selected' : ''}>Singles</option><option value="D" ${k.mod === 'D' ? 'selected' : ''}>Dobles</option></select></td></tr>`; }).join('')}
+                    </tbody></table></div>
+            </div>
+            <div class="mt-4"><div class="text-sm font-bold text-green-800 mb-1">Días y horarios del torneo</div>${editorDias(torEdit)}</div>
+        </div>`;
+    }
+
+    // ----- Calendario -----
+    let lista = ids.map(id => Object.assign({ id }, db.torneos[id])).filter(x => !torAnio || (x.f1 || '').slice(0, 4) === torAnio);
+    lista.sort((a, b) => (a.f1 || '9999').localeCompare(b.f1 || '9999') || String(a.nombre).localeCompare(String(b.nombre)));
+    html += `<div class="bg-white p-4 rounded-lg shadow-md">
+        <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+            <h2 class="text-xl font-bold text-green-700">Calendario de torneos</h2>
+            <div class="flex flex-wrap gap-2 items-center no-print">
+                <select id="tor_fanio" class="border rounded p-1 text-sm bg-gray-50"><option value="">Todos los años</option>${anios.map(a => `<option ${torAnio === a ? 'selected' : ''}>${a}</option>`).join('')}</select>
+                ${admin ? `<button class="tor-btn bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm font-bold" data-acc="nuevo">＋ Nuevo torneo</button>
+                <span class="flex items-center gap-1 text-sm"><button class="tor-btn bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm font-bold" data-acc="sugerir">Cargar calendario sugerido de</button><input type="number" id="tor_sug" class="border rounded p-1 text-sm w-20" value="${anioSug}"></span>` : ''}
+                <button onclick="window.print()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded text-sm font-bold">🖨 Imprimir</button>
+            </div>
+        </div>`;
+    if (!lista.length) {
+        html += `<p class="text-center text-gray-500 p-6">${admin ? 'Todavía no hay torneos. Usa "Nuevo torneo" o carga el calendario sugerido del año y ajusta las fechas.' : 'Todavía no hay torneos publicados.'}</p>`;
+    } else {
+        const colorEstado = { 'Propuesto': 'bg-gray-100 text-gray-700', 'Confirmado': 'bg-blue-100 text-blue-800', 'Inscripciones abiertas': 'bg-green-100 text-green-800', 'En curso': 'bg-amber-100 text-amber-900', 'Terminado': 'bg-gray-200 text-gray-600', 'Cancelado': 'bg-red-100 text-red-700' };
+        html += `<div class="overflow-x-auto"><table class="w-full text-sm border-collapse"><thead><tr class="bg-gray-100 text-gray-600 text-left">
+            <th class="p-2 border">Fechas</th><th class="p-2 border">Torneo</th><th class="p-2 border">Categorías</th><th class="p-2 border">Cierre de inscripciones</th><th class="p-2 border">Cooperación</th><th class="p-2 border">Premios</th><th class="p-2 border">Estado</th><th class="p-2 border no-print">Resultados</th>${admin ? '<th class="p-2 border no-print">Acciones</th>' : ''}</tr></thead><tbody>` +
+            lista.map(x => {
+                let activo = x.id === db.activo, cats = x.cats || {};
+                let nomCats = categorias.filter(c => cats[c] && cats[c].on).map(c => (cats[c].nombre || c) + (cats[c].mod === 'D' ? ' (dobles)' : '')).join(', ');
+                let modal = [x.sing ? 'Singles' : '', x.dob ? 'Dobles' : ''].filter(z => z).join(' y ');
+                let dias = diasEntre(x.f1, x.f2).filter(f => !(x.dias && x.dias[f] && x.dias[f].on === false)).length;
+                let premios = [x.trofeos ? 'Trofeos a 1.º y 2.º lugar' : '', x.recSemi ? 'Reconocimiento a semifinalistas' : '', x.recJug ? 'Reconocimiento a todos los jugadores' : '', x.premioOtro || ''].filter(z => z).join(' · ');
+                let cierre = x.cierre ? `${fechaCorta(String(x.cierre).slice(0, 10))}, ${String(x.cierre).slice(11, 16)} h` : '—';
+                let coop = x.coop ? `$${Number(x.coop).toLocaleString('es-MX')}${x.coopNota ? ' ' + esc(x.coopNota) : ''}` : '—';
+                let extra = [x.tipo, modal, x.sede, x.invitados ? 'Invitados: ' + x.invitados : '', x.cupo ? 'Cupo: ' + x.cupo + ' por categoría' : '', x.org ? 'Contacto: ' + x.org + (x.tel ? ' ' + x.tel : '') : '', x.notas].filter(z => z).map(esc).join(' · ');
+                return `<tr class="border-b align-top ${activo ? 'bg-green-50' : ''}">
+                    <td class="p-2 border whitespace-nowrap font-bold">${rangoFechas(x)}${dias ? `<div class="text-xs font-normal text-gray-500">${dias} día(s) de juego</div>` : ''}</td>
+                    <td class="p-2 border"><div class="font-bold text-gray-800">${esc(x.nombre || '(sin nombre)')} ${activo ? '<span class="text-xs bg-green-600 text-white rounded px-2 py-0.5 align-middle">EN OPERACIÓN</span>' : ''}</div><div class="text-xs text-gray-500">${extra}</div></td>
+                    <td class="p-2 border text-xs">${esc(nomCats) || '—'}</td>
+                    <td class="p-2 border text-xs whitespace-nowrap">${cierre}</td>
+                    <td class="p-2 border text-xs">${coop}</td>
+                    <td class="p-2 border text-xs">${esc(premios) || '—'}</td>
+                    <td class="p-2 border"><span class="text-xs font-bold rounded px-2 py-0.5 ${colorEstado[x.estado] || 'bg-gray-100'}">${esc(x.estado || '')}</span></td>
+                    <td class="p-2 border whitespace-nowrap no-print">${db.archivo[x.id] ? `<button class="tor-btn px-2 py-1 rounded text-xs font-bold bg-amber-100 text-amber-900 border border-amber-400 hover:bg-amber-200" data-acc="ver" data-id="${x.id}">📚 Ver resultados</button>` : (activo ? '<span class="text-xs text-green-700 font-bold">ver en las pestañas de categorías</span>' : '<span class="text-xs text-gray-400">sin resultados</span>')}</td>
+                    ${admin ? `<td class="p-2 border whitespace-nowrap no-print">
+                        <button class="tor-btn px-2 py-1 rounded text-xs font-bold bg-gray-200 hover:bg-gray-300" data-acc="editar" data-id="${x.id}">Editar</button>
+                        ${activo ? `<button class="tor-btn px-2 py-1 rounded text-xs font-bold bg-amber-500 text-white hover:bg-amber-600" data-acc="terminar" title="Guarda los resultados en el histórico y deja la captura en blanco">Dar por terminado</button>` : ''}
+                        ${activo ? '' : `<button class="tor-btn px-2 py-1 rounded text-xs font-bold bg-green-600 text-white hover:bg-green-700" data-acc="activar" data-id="${x.id}" title="Trabajar con las inscripciones y marcadores de este torneo">Poner en operación</button>
+                        <button class="tor-btn px-2 py-1 rounded text-xs font-bold bg-red-100 text-red-700 border border-red-300" data-acc="eliminar" data-id="${x.id}">Eliminar</button>`}</td>` : ''}
+                </tr>`;
+            }).join('') + `</tbody></table></div>`;
+    }
+    if (admin) html += `<p class="text-xs text-gray-500 mt-3 no-print">El torneo "en operación" es el que se inscribe, captura y programa en las demás pestañas. Al poner otro en operación, lo del anterior se guarda y se recupera al volver a activarlo.</p>`;
+    html += `</div>`;
+    cont.innerHTML = html;
+}
+
+/* ---------- Programación de horarios y asignación de canchas ---------- */
+const DURACIONES = [60, 75, 90, 105, 120, 135, 150, 165, 180];
+let progFiltroCat = '', progFiltroTxt = '';
+
+function listaCanchas() { return String(db.prog.canchas || '').split('\n').map(x => x.trim()).filter(x => x); }
+function aMin(hhmm) { let m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})$/); return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : NaN; }
+function aHora(min) { return String(Math.floor(min / 60) % 24).padStart(2, '0') + ':' + String(min % 60).padStart(2, '0'); }
+/* Turnos de un día. Sin fecha: horario general. Con fecha: el horario propio de ese día, si se definió. */
+function turnosDelDia(fecha) {
+    let dd = fecha ? (cal().dias || {})[fecha] : null;
+    if (dd && dd.on === false) return [];
+    let a = aMin((dd && dd.ini) || db.prog.ini), b = aMin((dd && dd.fin) || db.prog.fin), dur = parseInt(db.prog.dur) || 90, t = [];
+    if (isNaN(a)) return t;
+    if (isNaN(b) || b < a) b = a;
+    for (let m = a; m <= b; m += dur) t.push(aHora(m));
+    return t;
+}
+function sumaDias(fecha, n) {
+    let x = new Date(fecha + 'T12:00:00'); x.setDate(x.getDate() + n);
+    return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
+}
+function fechaLarga(d) {
+    let x = new Date(d + 'T12:00:00');
+    if (isNaN(x)) return d;
+    let t = x.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/* Jornadas de un grupo (todos contra todos): en cada jornada nadie juega dos veces */
+function jornadas(g) {
+    let arr = g.slice(); if (arr.length % 2) arr.push(null);
+    let n = arr.length, out = [];
+    for (let r = 0; r < n - 1; r++) {
+        let jor = [];
+        for (let i = 0; i < n / 2; i++) { let a = arr[i], b = arr[n - 1 - i]; if (a && b) jor.push(a.slot < b.slot ? [a, b] : [b, a]); }
+        out.push(jor);
+        arr.splice(1, 0, arr.pop());
+    }
+    return out;
+}
+
+/* Todos los partidos que existen hoy (grupos y fase final) con sus nombres y marcador */
+function todosLosPartidos() {
+    let lista = [];
+    catsActivas().forEach(cat => {
+        let info = computeCat(cat);
+        if (info.N < 3) return;
+        info.groups.forEach((g, gi) => {
+            jornadas(g).forEach((jor, r) => jor.forEach(([a, b]) => {
+                let key = pairKey(a, b);
+                lista.push({ cat, key, fase: `Grupo ${GROUP_NAMES[gi]}`, j1: a.name, j2: b.name, jug: [a.slot, b.slot], ronda: r, gi, score: db.scores[cat][key] || '', dep: null });
+            }));
+        });
+        let rounds = getBracket(info.numGroups);
+        if (!rounds.length) return;
+        let rb = resolveBracket(cat, info);
+        rounds.forEach((rd, ri) => rd.matches.forEach(([key, s1, s2]) => {
+            let [a, b] = rb.sides[key];
+            const nom = (p, src) => (p && !p.bye) ? p.nombre : (p && p.bye ? '(sin rival)' : srcLabel(src));
+            lista.push({ cat, key, fase: rd.title === 'Final' ? 'Final' : `${rd.title} ${key}`, j1: nom(a, s1), j2: nom(b, s2), jug: [], ronda: 100 + ri, gi: 99,
+                score: db.scores[cat][key] || '', dep: [s1, s2].filter(x => x.t === 'w').map(x => x.m), trasGrupos: [s1, s2].some(x => x.t !== 'w') });
+        }));
+    });
+    return lista;
+}
+
+function generarProgramacion() {
+    let P = db.prog, C = cal(), canchas = listaCanchas(), desc = parseInt(P.desc) || 0;
+    let msg = document.getElementById('prog_msg');
+    const error = t => { if (msg) { msg.textContent = t; msg.className = 'text-sm font-bold text-red-700'; } };
+    if (!canchas.length) return error('Escribe al menos una cancha.');
+    if (!C.f1) return error('Indica la fecha de inicio del torneo.');
+    if (!turnosDelDia().length) return error('Indica la hora del primer partido.');
+    let cola = todosLosPartidos().filter(m => P.cats[m.cat]);
+    if (!cola.length) return error('No hay partidos que programar: revisa las inscripciones y las categorías seleccionadas.');
+    if (categorias.some(c => Object.keys(db.horario[c]).length) && !confirm('Ya existe una programación. ¿Reemplazarla por una nueva? Se perderán los ajustes hechos a mano.')) return;
+    // Orden: jornada por jornada, alternando categorías y grupos; la fase final al final de cada categoría
+    cola.sort((a, b) => a.ronda - b.ronda || categorias.indexOf(a.cat) - categorias.indexOf(b.cat) || a.gi - b.gi);
+    let nuevo = {}; categorias.forEach(c => { nuevo[c] = P.cats[c] ? {} : db.horario[c]; });
+    let puesto = {};          // 'cat|key' -> { dia, t }
+    let ultimo = {};          // 'cat|slot' -> { dia, t } último turno jugado
+    let finGrupos = {};       // cat -> partidos de grupo pendientes
+    cola.forEach(m => { if (!m.dep) finGrupos[m.cat] = (finGrupos[m.cat] || 0) + 1; });
+    const antes = (x, dia, t) => x && (x.dia < dia || (x.dia === dia && x.t + desc < t));
+    let pendientes = cola.slice(), dia = 0;
+    while (pendientes.length && dia < 120) {
+        let fecha = sumaDias(C.f1, dia), turnos = turnosDelDia(fecha);
+        for (let t = 0; t < turnos.length && pendientes.length; t++) {
+            let ocupados = new Set(), listos = [];
+            for (let c = 0; c < canchas.length; c++) {
+                let idx = pendientes.findIndex(m => {
+                    if (m.dep) {   // fase final: después de los partidos de los que depende
+                        if (m.trasGrupos && finGrupos[m.cat] > 0) return false;
+                        if (m.trasGrupos && !antes(ultimo[m.cat + '|grupos'] || { dia: -1, t: 0 }, dia, t)) return false;
+                        return m.dep.every(k => antes(puesto[m.cat + '|' + k], dia, t));
+                    }
+                    return m.jug.every(sl => { let id = m.cat + '|' + sl; if (ocupados.has(id)) return false; let u = ultimo[id]; return !u || antes(u, dia, t); });
+                });
+                if (idx < 0) break;
+                let m = pendientes.splice(idx, 1)[0];
+                nuevo[m.cat][m.key] = { d: fecha, h: turnos[t], c: canchas[c] };
+                listos.push(m);
+                m.jug.forEach(sl => ocupados.add(m.cat + '|' + sl));
+            }
+            listos.forEach(m => {
+                puesto[m.cat + '|' + m.key] = { dia, t };
+                m.jug.forEach(sl => { ultimo[m.cat + '|' + sl] = { dia, t }; });
+                if (!m.dep) { finGrupos[m.cat]--; ultimo[m.cat + '|grupos'] = { dia, t }; }
+            });
+        }
+        dia++;
+    }
+    db.horario = nuevo; saveDB(); renderProg();
+    let m2 = document.getElementById('prog_msg');
+    if (m2) { m2.textContent = pendientes.length ? `⚠️ ${pendientes.length} partidos no cupieron en 120 días.` : '✅ Programación generada.'; m2.className = 'text-sm font-bold ' + (pendientes.length ? 'text-red-700' : 'text-green-700'); }
+}
+
+function borrarProgramacion() {
+    if (!confirm('¿Borrar toda la programación de horarios y canchas?')) return;
+    categorias.forEach(c => { db.horario[c] = {}; });
+    saveDB(); renderProg();
+}
+
+function renderProg() {
+    const cont = document.getElementById('tab_Programacion');
+    let P = db.prog, C = cal(), admin = puedeEditar(), canchas = listaCanchas(), turnos = turnosDelDia(), dur = parseInt(P.dur) || 90;
+    let todos = todosLosPartidos();
+    let html = '';
+
+    // ----- Resumen de partidos y capacidad -----
+    let porCat = categorias.map(c => {
+        let l = todos.filter(m => m.cat === c);
+        return { c, g: l.filter(m => !m.dep).length, f: l.filter(m => m.dep).length };
+    }).filter(x => x.g + x.f > 0);
+    let total = porCat.filter(x => P.cats[x.c]).reduce((a, x) => a + x.g + x.f, 0);
+    let porDia = turnos.length * canchas.length;
+    let diasNec = porDia ? Math.ceil(total / porDia) : 0;
+    let lista = diasEntre(C.f1, C.f2);
+    let diasDisp = lista.filter(f => turnosDelDia(f).length).length;
+    let capacidad = lista.reduce((a, f) => a + turnosDelDia(f).length * canchas.length, 0);
+
+    if (admin) {
+        html += `<div class="no-print bg-white p-4 rounded-lg shadow-md mb-4">
+            <h2 class="text-xl font-bold text-green-700 mb-3">Programación de horarios y asignación de canchas</h2>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div><label class="text-xs font-semibold text-gray-600">Canchas (una por renglón: número o nombre)</label>
+                    <textarea class="field prog-input text-sm" data-campo="canchas" rows="5">${esc(P.canchas)}</textarea></div>
+                <div>
+                    <label class="text-xs font-semibold text-gray-600">Fecha de inicio del torneo</label>
+                    <input type="date" class="field prog-input mb-2" data-campo="f1" value="${esc(C.f1)}">
+                    <label class="text-xs font-semibold text-gray-600">Fecha final del torneo</label>
+                    <input type="date" class="field prog-input" data-campo="f2" value="${esc(C.f2)}">
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-gray-600">Hora del primer partido de cada día</label>
+                    <input type="time" class="field prog-input mb-2" data-campo="ini" value="${esc(P.ini)}">
+                    <label class="text-xs font-semibold text-gray-600" title="Hora a la que puede empezar, como muy tarde, el último partido del día">Hora límite para iniciar el último partido del día</label>
+                    <input type="time" class="field prog-input" data-campo="fin" value="${esc(P.fin)}">
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-gray-600">Tiempo asignado por partido</label>
+                    <select class="field prog-input mb-2" data-campo="dur">${DURACIONES.map(x => `<option value="${x}" ${dur === x ? 'selected' : ''}>${x} minutos</option>`).join('')}</select>
+                    <label class="text-xs font-semibold text-gray-600">Descanso mínimo de un jugador entre sus partidos</label>
+                    <select class="field prog-input" data-campo="desc">
+                        <option value="0" ${!parseInt(P.desc) ? 'selected' : ''}>Sin descanso (puede jugar turnos seguidos)</option>
+                        <option value="1" ${parseInt(P.desc) === 1 ? 'selected' : ''}>Un turno de descanso</option>
+                        <option value="2" ${parseInt(P.desc) === 2 ? 'selected' : ''}>Dos turnos de descanso</option>
+                    </select>
+                </div>
+            </div>
+            <div class="mt-3"><div class="text-xs font-semibold text-gray-600 mb-1">Horario de cada día${torneoAct() ? ' (' + esc(torneoAct().nombre || '') + ')' : ''}</div>${editorDias(db.activo)}</div>
+            <div class="mt-3 flex flex-wrap gap-4 items-center text-sm">
+                <span class="font-semibold text-gray-700">Categorías a programar:</span>
+                ${porCat.length ? porCat.map(x => `<label class="flex items-center gap-1"><input type="checkbox" class="prog-cat" data-cat="${x.c}" ${P.cats[x.c] ? 'checked' : ''}> ${esc(catNombre(x.c))} <span class="text-gray-500">(${x.g} de grupo${x.f ? ' + ' + x.f + ' de fase final' : ''})</span></label>`).join('') : '<span class="text-gray-500">Todavía no hay categorías con 3 o más inscritos.</span>'}
+            </div>
+            <div class="mt-3 bg-green-50 border border-green-200 rounded p-3 text-sm text-gray-800">
+                <b>${total}</b> partidos por programar ·
+                <b>${turnos.length}</b> turnos por día${turnos.length ? ` (${turnos[0]} a ${turnos[turnos.length - 1]}; el último termina a las ${aHora(aMin(turnos[turnos.length - 1]) + dur)})` : ''} ×
+                <b>${canchas.length}</b> canchas = <b>${porDia}</b> partidos por día ·
+                con ese horario se necesitan al menos <b>${diasNec}</b> día(s).
+                ${lista.length ? `<br>Del ${fechaCorta(C.f1)} al ${fechaCorta(C.f2)} hay <b>${diasDisp}</b> día(s) de juego con lugar para <b>${capacidad}</b> partidos.` : ''}
+                ${lista.length && total > capacidad ? '<div class="text-red-700 font-bold mt-1">⚠️ No caben en las fechas indicadas: agrega canchas, días, amplía el horario o reduce el tiempo por partido.</div>' : ''}
+            </div>
+            <div class="mt-3 flex flex-wrap gap-2 items-center">
+                <button onclick="generarProgramacion()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-bold shadow-sm">⚙️ Generar programación</button>
+                <button onclick="borrarProgramacion()" class="bg-red-100 text-red-700 border border-red-300 px-3 py-2 rounded text-sm font-bold hover:bg-red-200">Borrar programación</button>
+                <span id="prog_msg" class="text-sm"></span>
+            </div>
+            <p class="text-xs text-gray-500 mt-2">La fase final se programa después de terminar los grupos de su categoría, con los lugares por definir. Después de generar puedes cambiar a mano la fecha, hora o cancha de cualquier partido en la tabla.</p>
+        </div>`;
+    }
+
+    // ----- Tabla de programación -----
+    let filas = todos.map(m => Object.assign({}, m, { hr: db.horario[m.cat][m.key] || { d: '', h: '', c: '' } }));
+    let prog = filas.filter(f => f.hr.d && f.hr.h && f.hr.c), sin = filas.filter(f => !(f.hr.d && f.hr.h && f.hr.c));
+    const ordC = c => { let i = canchas.indexOf(c); return i < 0 ? 999 : i; };
+    prog.sort((a, b) => a.hr.d.localeCompare(b.hr.d) || a.hr.h.localeCompare(b.hr.h) || ordC(a.hr.c) - ordC(b.hr.c));
+    // Choques: misma cancha a la misma hora, o un jugador en dos partidos a la vez
+    let usoC = {}, usoJ = {};
+    prog.forEach(f => {
+        let k = f.hr.d + '|' + f.hr.h + '|' + f.hr.c; usoC[k] = (usoC[k] || 0) + 1;
+        f.jug.forEach(sl => { let kj = f.hr.d + '|' + f.hr.h + '|' + f.cat + '|' + sl; usoJ[kj] = (usoJ[kj] || 0) + 1; });
+    });
+    const choque = f => usoC[f.hr.d + '|' + f.hr.h + '|' + f.hr.c] > 1 ? 'Dos partidos en la misma cancha a la misma hora'
+        : (f.jug.some(sl => usoJ[f.hr.d + '|' + f.hr.h + '|' + f.cat + '|' + sl] > 1) ? 'Un jugador tiene dos partidos a la misma hora' : '');
+    let nChoques = prog.filter(f => choque(f)).length;
+    let ult = prog.length ? prog[prog.length - 1] : null;
+
+    html += `<div class="bg-white p-4 rounded-lg shadow-md">
+        <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+            <h2 class="text-xl font-bold text-green-700">Horarios y canchas${db.ajustes.torneo ? ' · ' + esc(db.ajustes.torneo) : ''}</h2>
+            <div class="no-print flex flex-wrap gap-2 items-center">
+                <select id="prog_fcat" class="border rounded p-1 text-sm bg-gray-50"><option value="">Todas las categorías</option>${porCat.map(x => `<option value="${x.c}" ${progFiltroCat === x.c ? 'selected' : ''}>${esc(catTitulo(x.c))}</option>`).join('')}</select>
+                <input type="text" id="prog_ftxt" class="field text-sm" style="width:190px" placeholder="Buscar jugador…" value="${esc(progFiltroTxt)}">
+                <button onclick="window.print()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded text-sm font-bold">🖨 Imprimir</button>
+            </div>
+        </div>`;
+    if (!prog.length) {
+        html += `<p class="text-center text-gray-500 p-6">${admin ? 'Todavía no hay programación. Llena los datos de arriba y oprime "Generar programación".' : 'La programación de horarios todavía no está publicada.'}</p>`;
+    } else {
+        html += `<p class="text-sm text-gray-700 mb-3"><b>${prog.length}</b> partidos programados, del <b>${fechaLarga(prog[0].hr.d)}</b> al <b>${fechaLarga(ult.hr.d)}</b>. Último partido: <b>${ult.hr.h}</b> (termina aprox. a las ${aHora(aMin(ult.hr.h) + dur)}).
+            ${C.f2 && ult.hr.d > C.f2 ? '<span class="text-red-700 font-bold"> ⚠️ Rebasa la fecha final del torneo.</span>' : ''}
+            ${nChoques ? `<span class="text-red-700 font-bold"> ⚠️ ${nChoques} partidos con choque (marcados en rojo).</span>` : ''}</p>`;
+    }
+    const celdas = f => {
+        let ch = f.hr.d ? choque(f) : '';
+        let res = f.score ? esc(f.score) : '';
+        let horaCancha = admin
+            ? `<td class="p-1 border no-print"><input type="date" class="hor-input border rounded text-xs p-1" data-cat="${f.cat}" data-key="${f.key}" data-campo="d" value="${esc(f.hr.d)}"></td>
+               <td class="p-1 border"><input type="time" class="hor-input border rounded text-xs p-1" data-cat="${f.cat}" data-key="${f.key}" data-campo="h" value="${esc(f.hr.h)}"></td>
+               <td class="p-1 border"><select class="hor-input border rounded text-xs p-1" data-cat="${f.cat}" data-key="${f.key}" data-campo="c"><option value=""></option>${Array.from(new Set(canchas.concat(f.hr.c ? [f.hr.c] : []))).map(c => `<option ${c === f.hr.c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></td>`
+            : `<td class="p-1 border font-bold text-center">${esc(f.hr.h)}</td><td class="p-1 border text-center">${esc(f.hr.c)}</td>`;
+        return `<tr class="prog-fila border-b ${ch ? 'fila-choque' : ''}" title="${ch}" data-cat="${f.cat}" data-txt="${esc((f.j1 + ' ' + f.j2).toLowerCase())}">
+            ${horaCancha}
+            <td class="p-1 border text-center font-bold text-green-800">${esc(catNombre(f.cat))}</td>
+            <td class="p-1 border">${esc(f.fase)}</td>
+            <td class="p-1 border font-bold text-gray-700">${esc(f.j1)} <span class="text-gray-400 font-normal">vs</span> ${esc(f.j2)}</td>
+            <td class="p-1 border text-center">${res}</td></tr>`;
+    };
+    const cab = `<thead><tr class="bg-gray-100 text-gray-600 text-left">${admin ? '<th class="p-1 border no-print">Fecha</th>' : ''}<th class="p-1 border">Hora</th><th class="p-1 border">Cancha</th><th class="p-1 border">Cat.</th><th class="p-1 border">Fase</th><th class="p-1 border">Partido</th><th class="p-1 border">Marcador</th></tr></thead>`;
+    let dias = Array.from(new Set(prog.map(f => f.hr.d)));
+    dias.forEach(d => {
+        html += `<div class="prog-dia mb-5"><h3 class="font-bold text-green-800 bg-green-50 px-3 py-1 rounded mb-1">${fechaLarga(d)}</h3>
+            <div class="overflow-x-auto"><table class="w-full text-xs border-collapse">${cab}<tbody>${prog.filter(f => f.hr.d === d).map(celdas).join('')}</tbody></table></div></div>`;
+    });
+    if (sin.length && (admin || prog.length)) {
+        html += `<div class="prog-dia mb-2 ${admin ? '' : 'no-print'}"><h3 class="font-bold text-amber-800 bg-amber-50 px-3 py-1 rounded mb-1">Sin programar (${sin.length})</h3>
+            ${admin ? `<div class="overflow-x-auto"><table class="w-full text-xs border-collapse">${cab}<tbody>${sin.map(celdas).join('')}</tbody></table></div>` : '<p class="text-xs text-gray-500 px-3">Partidos que todavía no tienen horario.</p>'}</div>`;
+    }
+    html += `</div>`;
+    cont.innerHTML = html;
+    filtrarProg();
+}
+
+function filtrarProg() {
+    let q = progFiltroTxt.trim().toLowerCase();
+    document.querySelectorAll('#tab_Programacion .prog-fila').forEach(tr => {
+        let ok = (!progFiltroCat || tr.dataset.cat === progFiltroCat) && (!q || tr.dataset.txt.includes(q));
+        tr.style.display = ok ? '' : 'none';
+    });
+    document.querySelectorAll('#tab_Programacion .prog-dia').forEach(dv => {
+        let filas = dv.querySelectorAll('.prog-fila');
+        dv.style.display = (!filas.length || Array.from(filas).some(tr => tr.style.display !== 'none')) ? '' : 'none';
+    });
 }
 
 /* ---------- Datos de jugadores ---------- */
@@ -932,7 +1536,7 @@ function getDato(cat, slot) { return db.datos[cat][slot] || {}; }
 
 function renderJugadores() {
     const cont = document.getElementById('tab_Jugadores');
-    if (!jugCat || !categorias.includes(jugCat)) jugCat = categorias.find(c => getActivos(db, c).length) || categorias[0];
+    if (!jugCat || !catsActivas().includes(jugCat)) jugCat = catsActivas().find(c => getActivos(db, c).length) || catsActivas()[0];
     let cat = jugCat, info = computeCat(cat), activos = getActivos(db, cat);
     let grupoDe = {};
     info.groups.forEach((g, gi) => g.forEach(p => { grupoDe[p.slot] = gi; }));
@@ -949,11 +1553,11 @@ function renderJugadores() {
         <p class="text-xs text-gray-500 mt-2">${nube.activa ? 'Estos datos solo los ven los capturistas con acceso; no aparecen en la consulta pública.' : 'Estos datos se guardan solo en este navegador.'} Los jugadores se dan de alta o de baja en la pestaña Inscripciones.</p>
     </div>
     <div class="flex flex-wrap gap-2 mb-3">` +
-        categorias.map(c => `<button class="jug-cat-btn px-3 py-1 rounded text-sm font-bold border ${c === cat ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}" data-cat="${c}">Cat ${c} (${getActivos(db, c).length})</button>`).join('') +
+        catsActivas().map(c => `<button class="jug-cat-btn px-3 py-1 rounded text-sm font-bold border ${c === cat ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}" data-cat="${c}">${esc(catTitulo(c))} (${getActivos(db, c).length})</button>`).join('') +
     `</div>`;
 
     if (!activos.length) {
-        html += `<div class="text-center p-10 bg-white rounded shadow text-gray-500 border border-gray-200">No hay jugadores inscritos en la categoría ${cat}.</div>`;
+        html += `<div class="text-center p-10 bg-white rounded shadow text-gray-500 border border-gray-200">No hay jugadores inscritos en ${esc(catTitulo(cat))}.</div>`;
     } else {
         html += `<div class="bg-white p-3 rounded-lg shadow-md overflow-x-auto"><table class="w-full text-xs border-collapse">
             <thead><tr class="bg-gray-100 text-gray-600 text-left">
@@ -969,7 +1573,7 @@ function renderJugadores() {
                 <td class="p-1 border" style="min-width:150px">${nameInput(cat, p)}</td>
                 ${CAMPOS.map(c => `<td class="p-1 border"><input type="text" inputmode="${c[2]}" class="field dato-input text-xs ${c[3]}" style="padding:2px 6px" data-cat="${cat}" data-slot="${p.slot}" data-campo="${c[0]}" value="${esc(d[c[0]])}" placeholder="${c[4]}"></td>`).join('')}
                 <td class="p-1 border"><select class="dato-input border rounded p-1 text-xs bg-gray-50" data-cat="${cat}" data-slot="${p.slot}" data-campo="catRec">
-                    ${['', ...categorias].map(c => `<option value="${c}" ${(d.catRec || '') === c ? 'selected' : ''}>${c || '—'}</option>`).join('')}</select></td>
+                    ${['', ...catsActivas()].map(c => `<option value="${c}" ${(d.catRec || '') === c ? 'selected' : ''}>${c ? esc(catNombre(c)) : '—'}</option>`).join('')}</select></td>
                 <td class="p-1 border" style="min-width:140px"><input type="text" class="field dato-input text-xs" style="padding:2px 6px" data-cat="${cat}" data-slot="${p.slot}" data-campo="notas" value="${esc(d.notas)}"></td>
                 <td class="p-1 border text-center whitespace-nowrap">${gi !== undefined
                     ? `<button class="send-group-btn bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-1 rounded hover:bg-emerald-200 font-bold" data-cat="${cat}" data-g="${gi}" data-slot="${p.slot}">📤 Enviar</button>`
@@ -979,17 +1583,18 @@ function renderJugadores() {
         html += `</tbody></table></div>`;
     }
     cont.innerHTML = html;
+    autoAlto(cont);
 }
 
 function exportarCSV() {
     const q = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
     let rows = [['Categoría', 'Grupo', 'Nombre', 'Celular', 'Edad', 'Correo', 'UTR', 'Clasificación interna', 'Categoría recomendada', 'Notas']];
-    categorias.forEach(cat => {
+    catsActivas().forEach(cat => {
         let info = computeCat(cat), grupoDe = {};
         info.groups.forEach((g, gi) => g.forEach(p => { grupoDe[p.slot] = GROUP_NAMES[gi]; }));
         getActivos(db, cat).forEach(p => {
             let d = getDato(cat, p.slot);
-            rows.push([cat, grupoDe[p.slot] || '', p.name, d.tel, d.edad, d.email, d.utr, d.clasif, d.catRec, d.notas]);
+            rows.push([catNombre(cat), grupoDe[p.slot] || '', p.name, d.tel, d.edad, d.email, d.utr, d.clasif, d.catRec, d.notas]);
         });
     });
     let csv = '\uFEFF' + rows.map(r => r.map(q).join(',')).join('\r\n');
@@ -1004,7 +1609,7 @@ function mensajeGrupo(cat, gi) {
     let info = computeCat(cat), g = info.groups[gi], t = info.tables[gi];
     let L = [];
     L.push(`🎾 ${db.ajustes.torneo.trim() || 'Torneo de tenis'}`);
-    L.push(`Categoría ${cat} - Grupo ${GROUP_NAMES[gi]}`);
+    L.push(`${catNombre(cat) === cat ? 'Categoría ' + cat : catNombre(cat)} - Grupo ${GROUP_NAMES[gi]}`);
     L.push('', 'RESULTADOS');
     for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) {
         let sc = db.scores[cat][pairKey(g[i], g[j])] || '';
@@ -1038,7 +1643,7 @@ function abrirEnvio(cat, gi, slotDestacado) {
     envio = { cat, gi };
     let conCorreo = g.filter(p => emailOk(getDato(cat, p.slot).email)).length;
     let html = `<div class="flex justify-between items-start mb-2">
-            <h3 class="text-lg font-bold text-green-800">Enviar resultados - Cat. ${cat}, Grupo ${GROUP_NAMES[gi]}</h3>
+            <h3 class="text-lg font-bold text-green-800">Enviar resultados - ${esc(catTitulo(cat))}, Grupo ${GROUP_NAMES[gi]}</h3>
             <button class="cerrar-envio text-gray-500 hover:text-black text-xl font-bold px-2">✕</button>
         </div>
         <p class="text-xs text-gray-600 mb-1">Mensaje (puedes editarlo antes de enviar). A cada jugador se le antepone un saludo con su nombre.</p>
@@ -1070,7 +1675,7 @@ function cerrarEnvio() {
     m.classList.add('hidden'); m.classList.remove('flex'); envio = null;
 }
 function asuntoEnvio() {
-    return `Resultados ${db.ajustes.torneo.trim() || 'Torneo de tenis'} - Cat. ${envio.cat} Grupo ${GROUP_NAMES[envio.gi]}`;
+    return `Resultados ${db.ajustes.torneo.trim() || 'Torneo de tenis'} - ${catTitulo(envio.cat)} Grupo ${GROUP_NAMES[envio.gi]}`;
 }
 function abrirEnlace(url, nuevaVentana) {
     let a = document.createElement('a');
@@ -1099,7 +1704,22 @@ function copiarEnvio() {
 
 /* ---------- Construcción de la interfaz ---------- */
 function nameInput(cat, p, extra) {
-    return `<input type="text" class="name-edit ${extra || ''}" data-cat="${cat}" data-slot="${p.slot}" value="${esc(p.name)}" title="Clic para corregir el nombre">`;
+    // Área de texto de un renglón que crece a dos o más cuando el nombre es largo (así no se recorta)
+    return `<textarea rows="1" class="name-edit ${extra || ''}" data-cat="${cat}" data-slot="${p.slot}" title="Clic para corregir el nombre">${esc(p.name)}</textarea>`;
+}
+/* Ajusta la altura de los nombres a su contenido (para navegadores sin field-sizing) */
+function autoAlto(raiz) {
+    (raiz || document).querySelectorAll('textarea.name-edit').forEach(el => {
+        el.style.height = 'auto';
+        if (el.scrollHeight > 0) el.style.height = el.scrollHeight + 'px';
+    });
+}
+
+const DIAS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'], MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+function fechaCorta(d) { let x = new Date(d + 'T12:00:00'); return isNaN(x) ? d : `${DIAS[x.getDay()]} ${x.getDate()} ${MESES[x.getMonth()]}`; }
+function horarioTxt(cat, key) {
+    let h = db.horario[cat][key];
+    return (h && h.d && h.h && h.c) ? `📅 ${fechaCorta(h.d)} · ${h.h} · ${h.c}` : '';
 }
 
 function setBoxes(sets) {
@@ -1116,7 +1736,7 @@ function matchHtml(cat, key, title, side1Html, side2Html, bg, isSets) {
     if (isSets) boxes = setBoxes(getSetScores(db.scores[cat][key] || ''));
     else { let sc = getGameScores(db.scores[cat][key] || ''); boxes = [gameBox(1, sc[0]), gameBox(2, sc[1])]; }
     return `<div class="border border-gray-300 p-2 ${bg} shadow-sm rounded mb-2 match-container" data-cat="${cat}" data-key="${key}" data-sets="${isSets}">
-        ${title ? `<div class="text-[10px] text-gray-500 mb-2 font-bold text-center border-b pb-1 bg-gray-50 rounded-t">${title}</div>` : ''}
+        ${(title || horarioTxt(cat, key)) ? `<div class="text-[10px] text-gray-500 mb-2 font-bold text-center border-b pb-1 bg-gray-50 rounded-t">${title}${title && horarioTxt(cat, key) ? ' · ' : ''}<span class="font-normal">${esc(horarioTxt(cat, key))}</span></div>` : ''}
         <div class="flex items-center justify-between mb-2 gap-2">
             <div class="flex-1 min-w-0 text-left">${side1Html}</div>
             <div class="flex gap-1 justify-end">${boxes[0]}</div>
@@ -1130,7 +1750,7 @@ function matchHtml(cat, key, title, side1Html, side2Html, bg, isSets) {
 
 function bracketSideHtml(cat, key, n, src) {
     if (src.t === 'm') return `<select class="manual-select w-full text-[11px] p-1 bg-yellow-100 border border-yellow-300 rounded" data-cat="${cat}" data-mkey="${src.k}" id="sel_${cat}_${src.k}" title="Elige al mejor tercero que ocupa este lugar"></select>`;
-    return `<span id="lbl_${cat}_${key}_${n}" class="w-full text-xs truncate font-bold text-gray-400 block">${srcLabel(src)}</span>`;
+    return `<span id="lbl_${cat}_${key}_${n}" class="w-full text-xs leading-tight break-words font-bold text-gray-400 block">${srcLabel(src)}</span>`;
 }
 
 function buildCategoriasDOM(cat) {
@@ -1148,7 +1768,7 @@ function buildCategoriasDOM(cat) {
         <option value="sets" ${fmt[fase] === 'sets' ? 'selected' : ''}>2 de 3 sets</option></select>`;
 
     let headerHtml = `<div class="flex flex-col md:flex-row justify-between items-center bg-white p-3 rounded shadow mb-4 border-l-4 border-green-600">
-        <h2 class="text-xl font-bold text-green-800">Categoría ${cat} - <span class="text-indigo-600">${N} Inscritos</span></h2>
+        <h2 class="text-xl font-bold text-green-800">${catNombre(cat) === cat ? 'Categoría ' + cat : esc(catNombre(cat))}${catModo(cat) === 'D' ? ' (dobles)' : ''} - <span class="text-indigo-600">${N} Inscritos</span></h2>
         <div class="solo-admin flex items-center flex-wrap mt-2 md:mt-0 gap-2">
             <label class="text-sm font-semibold text-gray-700">Grupos:</label>
             <select class="p-1 border rounded text-sm config-select bg-gray-50 shadow-sm" data-cat="${cat}">${opts}</select>${nota}
@@ -1194,7 +1814,8 @@ function buildCategoriasDOM(cat) {
                     html += matchHtml(cat, key, '', nameInput(cat, g[i]), nameInput(cat, g[j]), 'bg-gray-50', true);
                 } else {
                     let sc = getGameScores(db.scores[cat][key] || '');
-                    html += `<div class="flex justify-between items-center bg-white border border-gray-300 p-2 rounded shadow-sm match-container" data-cat="${cat}" data-key="${key}" data-sets="false">
+                    html += `<div class="flex flex-wrap justify-between items-center bg-white border border-gray-300 p-2 rounded shadow-sm match-container" data-cat="${cat}" data-key="${key}" data-sets="false">
+                        ${horarioTxt(cat, key) ? `<div class="w-full text-[10px] text-center text-gray-500 mb-1">${esc(horarioTxt(cat, key))}</div>` : ''}
                         <div class="flex-1 min-w-0 pr-2">${nameInput(cat, g[i], 'text-right')}</div>
                         <div class="flex justify-center items-center gap-1">
                             ${gameBox(1, sc[0])}
@@ -1255,10 +1876,11 @@ function buildCategoriasDOM(cat) {
     }
 
     container.innerHTML = html;
+    autoAlto(container);
     container.dataset.sig = firma(cat);
     // Modo consulta: nada se puede modificar
     if (!puedeEditar()) {
-        container.querySelectorAll('input, select').forEach(el => { el.disabled = true; el.title = ''; });
+        container.querySelectorAll('input, select, textarea').forEach(el => { el.disabled = true; el.title = ''; });
         // Anotador autorizado: solo las casillas de marcador quedan activas
         if (puedeMarcar()) container.querySelectorAll('.dyn-part').forEach(el => { el.disabled = false; });
     }
@@ -1279,7 +1901,7 @@ function updateStandings(cat) {
         tbody.innerHTML = t.stats.map((j, i) => {
             let clasifica = t.played > 0 && (numGroups === 1 ? i === 0 : (sembrados ? sembrados.has(j.slot) : i < 2));
             return `<tr class="${clasifica ? 'win-row' : 'bg-white'} border-b">
-                <td class="p-1">${i + 1}</td><td class="p-1 text-left font-medium truncate max-w-[120px] text-gray-700" title="${esc(j.nombre)}">${esc(j.nombre)}</td>
+                <td class="p-1">${i + 1}</td><td class="p-1 text-left font-medium whitespace-normal break-words leading-tight text-gray-700" style="min-width:110px;max-width:260px" title="${esc(j.nombre)}">${esc(j.nombre)}</td>
                 <td class="p-1">${j.pj}</td><td class="p-1">${j.pg}</td><td class="p-1">${j.wg}</td><td class="p-1">${j.lg}</td><td class="p-1 font-bold text-green-800">${j.pct.toFixed(1)}%</td>
                 ${info.setsG ? `<td class="p-1 bg-blue-50/50 text-gray-600">${j.jgw}</td><td class="p-1 bg-blue-50/50 text-gray-600">${j.jgl}</td><td class="p-1 font-bold text-blue-800 bg-blue-50/50">${j.pct_j.toFixed(1)}%</td>` : ''}
             </tr>`;
@@ -1318,7 +1940,7 @@ function updateStandings(cat) {
         [[s1, a, 1], [s2, b, 2]].forEach(([src, p, n]) => {
             let el = document.getElementById(`lbl_${cat}_${key}_${n}`);
             if (!el) return;
-            let base = 'w-full text-xs truncate font-bold block ';
+            let base = 'w-full text-xs leading-tight break-words font-bold block ';
             if (!p) { el.textContent = srcLabel(src); el.title = ''; el.className = base + 'text-gray-400'; }
             else if (p.bye) { el.textContent = '— sin rival (pasa directo)'; el.title = srcLabel(src); el.className = base + 'text-gray-400 italic'; }
             else {
@@ -1350,16 +1972,24 @@ document.addEventListener('input', e => {
     let t = e.target;
     if (t.classList.contains('nombres-input')) {
         db.jugadores[t.dataset.cat][parseInt(t.dataset.idx)] = t.value; saveDB();
+    } else if (t.id === 'prog_ftxt') {
+        progFiltroTxt = t.value; filtrarProg();
+    } else if (t.classList.contains('prog-input') && t.tagName === 'TEXTAREA') {
+        db.prog.canchas = t.value; saveDB();
     } else if (t.classList.contains('dato-input')) {
         guardarDato(t);
     } else if (t.classList.contains('ajuste-input')) {
-        db.ajustes[t.dataset.campo] = t.value; saveDB();
+        db.ajustes[t.dataset.campo] = t.value;
+        if (t.dataset.campo === 'torneo') { if (torneoAct()) torneoAct().nombre = t.value; pintarTabs(); }
+        saveDB();
     } else if (t.classList.contains('name-edit')) {
         // Corrección de nombre desde un partido: se actualiza en inscripciones, en los demás partidos, la tabla y el cuadro
         let cat = t.dataset.cat, slot = parseInt(t.dataset.slot);
+        if (/[\r\n]/.test(t.value)) t.value = t.value.replace(/[\r\n]+/g, ' ');
         if (t.value.trim() === '') return;   // vacío: no se guarda (para dar de baja se usa Inscripciones)
         db.jugadores[cat][slot] = t.value; saveDB();
         document.querySelectorAll(`.name-edit[data-cat="${cat}"][data-slot="${slot}"]`).forEach(el => { if (el !== t) el.value = t.value; });
+        autoAlto();
         let ins = document.querySelector(`.nombres-input[data-cat="${cat}"][data-idx="${slot}"]`);
         if (ins) ins.value = t.value;
         updateStandings(cat);
@@ -1398,6 +2028,50 @@ document.addEventListener('change', e => {
         return;
     }
     if (t.classList.contains('dato-input')) { guardarDato(t); return; }
+    if (t.id === 'tor_fanio') { torAnio = t.value; renderTorneos(); return; }
+    if (t.classList.contains('tor-input')) {
+        let T = db.torneos[t.dataset.id], c = t.dataset.campo;
+        if (!T) return;
+        T[c] = t.type === 'checkbox' ? t.checked : t.value;
+        if (c === 'f1' && T.f1 && (!T.f2 || T.f2 < T.f1)) T.f2 = T.f1;
+        if (c === 'nombre' && t.dataset.id === db.activo) db.ajustes.torneo = T.nombre;
+        saveDB(); pintarTabs(); renderTorneos(); return;
+    }
+    if (t.classList.contains('tor-cat')) {
+        let T = db.torneos[t.dataset.id], c = t.dataset.cat, campo = t.dataset.campo;
+        if (!T) return;
+        T.cats = T.cats || catsDefault();
+        T.cats[c] = T.cats[c] || { on: false, nombre: '', mod: 'S' };
+        T.cats[c][campo] = t.type === 'checkbox' ? t.checked : t.value;
+        if (campo === 'on' && t.checked && !T.cats[c].nombre) T.cats[c].nombre = c;
+        saveDB(); pintarTabs(); renderTorneos(); return;
+    }
+    if (t.classList.contains('dia-input')) {
+        let O = t.dataset.tid ? db.torneos[t.dataset.tid] : db.prog, f = t.dataset.fecha;
+        if (!O) return;
+        O.dias = O.dias || {};
+        O.dias[f] = Object.assign({ on: true, ini: '', fin: '' }, O.dias[f] || {});
+        O.dias[f][t.dataset.campo] = t.type === 'checkbox' ? t.checked : t.value;
+        saveDB();
+        if (tabActiva() === 'Torneos') renderTorneos(); else renderProg();
+        return;
+    }
+    if (t.id === 'prog_fcat') { progFiltroCat = t.value; filtrarProg(); return; }
+    if (t.classList.contains('prog-input')) {
+        let c = t.dataset.campo;
+        if (c === 'f1' || c === 'f2') cal()[c] = t.value;   // las fechas son las del torneo en operación
+        else db.prog[c] = (c === 'dur' || c === 'desc') ? (parseInt(t.value) || 0) : t.value;
+        saveDB(); renderProg(); return;
+    }
+    if (t.classList.contains('prog-cat')) { db.prog.cats[t.dataset.cat] = t.checked; saveDB(); renderProg(); return; }
+    if (t.classList.contains('hor-input')) {
+        // Ajuste manual de fecha, hora o cancha de un partido
+        let cat = t.dataset.cat, key = t.dataset.key;
+        let h = Object.assign({ d: '', h: '', c: '' }, db.horario[cat][key] || {});
+        h[t.dataset.campo] = t.value;
+        if (!h.d && !h.h && !h.c) delete db.horario[cat][key]; else db.horario[cat][key] = h;
+        saveDB(); renderProg(); return;
+    }
     if (t.classList.contains('config-select')) {
         let cat = t.dataset.cat, N = getActivos(db, cat).length;
         let antes = getNumGroups(N, db.config[cat] || 'auto'), despues = getNumGroups(N, t.value);
@@ -1433,6 +2107,30 @@ document.addEventListener('click', e => {
     if (t.id === 'btn_logout') { if (nube.api) nube.api.signOut(nube.auth); return; }
     if (t.id === 'login_cancel' || t.id === 'modal_login') { cerrarLogin(); return; }
     if (t.id === 'login_modo') { e.preventDefault(); modoLogin(!loginRegistro); return; }
+    if (t.classList.contains('tor-btn')) {
+        let acc = t.dataset.acc, id = t.dataset.id;
+        if (acc === 'nuevo') { torEdit = nuevoTorneo(); saveDB(); renderTorneos(); window.scrollTo(0, 0); }
+        else if (acc === 'editar') { torEdit = id; renderTorneos(); window.scrollTo(0, 0); }
+        else if (acc === 'cerrar') { torEdit = ''; renderTorneos(); }
+        else if (acc === 'activar') activarTorneo(id);
+        else if (acc === 'ver') verHistorico(id);
+        else if (acc === 'terminar') terminarTorneo();
+        else if (acc === 'eliminar') {
+            let T = db.torneos[id];
+            if (!T || id === db.activo) return;
+            if (!confirm(`¿Eliminar "${T.nombre}" del calendario?` + (db.archivo[id] ? ' También se borrarán sus inscripciones y marcadores guardados.' : ''))) return;
+            delete db.torneos[id]; delete db.archivo[id];
+            if (torEdit === id) torEdit = '';
+            saveDB(); renderTorneos();
+        } else if (acc === 'sugerir') {
+            let anio = parseInt(document.getElementById('tor_sug').value);
+            if (!(anio >= 2020 && anio <= 2100)) return;
+            let n = calendarioSugerido(anio);
+            torAnio = ''; saveDB(); renderTorneos();
+            if (!n) alert('Los torneos sugeridos de ' + anio + ' ya estaban en el calendario.');
+        }
+        return;
+    }
     if (t.classList.contains('seed-btn')) {
         // Ajuste manual de la siembra: intercambia dos lugares contiguos
         let cat = t.dataset.cat, i = parseInt(t.dataset.i), j = i + parseInt(t.dataset.d);
@@ -1446,7 +2144,7 @@ document.addEventListener('click', e => {
     if (t.classList.contains('seed-reset')) { db.siembra[t.dataset.cat] = null; saveDB(); updateStandings(t.dataset.cat); return; }
     if (t.classList.contains('cap-btn')) { accionCapturista(t.dataset.acc, t.dataset.uid); return; }
     if (t.classList.contains('reset-cat-btn')) {
-        if (confirm(`¿Borrar todos los marcadores de la categoría ${t.dataset.cat}? (Los nombres se conservan)`)) resetCat(t.dataset.cat);
+        if (confirm(`¿Borrar todos los marcadores de ${catTitulo(t.dataset.cat)}? (Los nombres se conservan)`)) resetCat(t.dataset.cat);
     } else if (t.classList.contains('jug-cat-btn')) {
         jugCat = t.dataset.cat; renderJugadores();
     } else if (t.classList.contains('send-group-btn')) {
@@ -1471,6 +2169,7 @@ document.addEventListener('click', e => {
 /* ENTER salta a la siguiente casilla. En partidos por sets el orden es
    set 1 (jugador 1, jugador 2), set 2, set 3, y luego el siguiente partido. */
 document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.classList.contains('name-edit')) { e.preventDefault(); e.target.blur(); return; }
     if (e.key !== 'Enter' || e.target.tagName !== 'INPUT' || e.target.type !== 'text') return;
     e.preventDefault();
     let orden = [], vistos = new Set();
@@ -1517,22 +2216,16 @@ document.getElementById('form_login').addEventListener('submit', e => {
 });
 
 function limpiarDatos() {
-    if (nube.activa) {
-        if (confirm('¿Borrar TODO el torneo de la NUBE (nombres, datos de contacto y marcadores), para todos los usuarios?')) {
-            db = initDB(); saveDB(); refrescarUI(true);
-        }
-        return;
-    }
-    if (confirm('¿Borrar TODOS los datos (nombres, datos de contacto y marcadores) de TODAS las categorías?')) {
-        // Solo se borran los datos de esta aplicación, no toda la memoria del navegador
-        [STORE_KEY, ...OLD_KEYS].forEach(k => localStorage.removeItem(k));
-        db = initDB(); renderInscripciones();
-        categorias.forEach(c => { let el = document.getElementById('tab_' + c); if (el) el.innerHTML = ''; });
-        document.getElementById('tab_Jugadores').innerHTML = '';
-        document.getElementById('sim_msg').textContent = '';
-    }
+    if (!confirm('¿Borrar las inscripciones, datos de contacto, marcadores y horarios del torneo en operación' + (nube.activa ? ', para todos los usuarios' : '') + '? El calendario de torneos no se borra.')) return;
+    vaciarTrabajo(); saveDB();
+    renderInscripciones();
+    categorias.forEach(c => { let el = document.getElementById('tab_' + c); if (el) el.innerHTML = ''; });
+    document.getElementById('sim_msg').textContent = '';
+    refrescarUI(true);
 }
-
+// Contenedores de las categorías
+document.getElementById('cat-tabs').innerHTML = categorias.map(c => `<div id="tab_${c}" class="tab-content"></div>`).join('');
+pintarTabs();
 renderInscripciones();
 if (nube.activa) iniciarNube();
 </script>
