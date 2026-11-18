@@ -54,6 +54,7 @@
     <div class="flex flex-wrap border-b border-gray-300 mb-6" id="tabs-nav">
         <button id="btn_Torneos" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Torneos')">🏆 Torneos</button>
         <button id="btn_Inscripciones" class="solo-admin tab-btn active px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Inscripciones')">📝 Inscripciones</button>
+        <button id="btn_Perfiles" class="solo-admin tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Perfiles')">🪪 Perfiles</button>
         <button id="btn_Jugadores" class="solo-admin tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Jugadores')">👥 Jugadores</button>
  <button id="btn_Programacion" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Programacion')">📅 Programación</button>
         <button id="btn_Capturistas" class="solo-admin solo-nube tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Capturistas')">🔐 Capturistas <span id="badge_pend" class="bg-red-600 text-white text-xs font-bold rounded-full px-2" style="display:none"></span></button>
@@ -86,6 +87,10 @@
 
     <!-- Pestaña Datos de Jugadores -->
     <div id="tab_Jugadores" class="tab-content"></div>
+    <div id="tab_Perfiles" class="tab-content"></div>
+    <div id="modal_perfil" class="fixed inset-0 z-50 overflow-y-auto" style="display:none;background:rgba(0,0,0,.6)">
+        <div class="bg-white rounded-lg shadow-xl mx-auto my-4 p-4" style="max-width:860px;width:96%" id="perf_form"></div>
+    </div>
 
     <!-- Pestaña Programación de horarios y asignación de canchas -->
     <div id="tab_Programacion" class="tab-content"></div>
@@ -526,6 +531,7 @@ function soltarEscuchas(todo) {
 /* Conecta las lecturas que corresponden al nivel del usuario */
 function configurarEscuchas() {
     soltarEscuchas(false);
+    if (nube.rol !== 'admin') { perf.meta = {}; perf.listo = false; perf.error = ''; }
     const api = nube.api, R = p => api.ref(nube.rtdb, p);
     const fallo = e => { nube.error = 'Error de lectura: ' + e.message; pintarBarra(); };
     if (nube.rol === 'admin') {
@@ -534,6 +540,8 @@ function configurarEscuchas() {
         nube.bajas.push(api.onValue(R('publico'), s => { nube.pub = s.val() || {}; llego(); }, fallo));
         nube.bajas.push(api.onValue(R('privado'), s => { nube.priv = s.val() || {}; llego(); }, fallo));
         nube.bajas.push(api.onValue(R('marcadores'), s => { nube.marc = s.val() || {}; pintarCapturistas(); }, fallo));
+        nube.bajas.push(api.onValue(R('perfiles/meta'), s => { perf.meta = s.val() || {}; perf.listo = true; perf.error = ''; perfilesCambio(); },
+            e => { perf.error = 'No se pueden leer los perfiles (' + e.message + '). Falta publicar las reglas nuevas de Firebase.'; perfilesCambio(); }));
         nube.bajas.push(api.onValue(R('capturistas'), s => { nube.caps = s.val() || {}; pintarCapturistas(); }, fallo));
     } else if (nube.rol === 'marcador') {
         nube.pub = null;
@@ -984,6 +992,7 @@ function openTab(tabName) {
     if (tabName === 'Torneos') renderTorneos();
     if (categorias.includes(tabName)) { buildCategoriasDOM(tabName); updateStandings(tabName); }
     if (tabName === 'Jugadores') renderJugadores();
+    if (tabName === 'Perfiles') renderPerfiles();
     if (tabName === 'Capturistas') pintarCapturistas();
     if (tabName === 'Programacion') renderProg();
 }
@@ -1255,6 +1264,272 @@ function renderTorneos() {
     html += `</div>`;
     cont.innerHTML = html;
 }
+
+
+/* ---------- Perfiles de jugadores (fotos, nacimiento, ciudad, club, UTR, n.º de registro) ---------- */
+/* Datos personales y fotografías: solo los ven los administradores. Viven fuera del torneo, en su propio nodo:
+   perfiles/meta/{id} (datos + miniatura), perfiles/fotos/{id} (3 fotos, solo al abrir el perfil), perfiles/cont (contador). */
+const PERF_KEY = 'torneoDinPerfiles1', FOTO_KEY = 'torneoDinFotos1';
+const perf = { meta: {}, fotos: {}, cont: 0, listo: false, error: '', ed: null, q: '', fclub: '', fcat: '' };
+const FOTOS_PERFIL = [['r', 'Rostro', 'Solo la cara, de frente'], ['d', 'Cuerpo completo · ropa de tenis', 'Con raqueta y pelota'], ['c', 'Cuerpo completo · ropa normal', 'Pants y/o chamarra']];
+const numTxt = n => String(n).padStart(4, '0');
+const imgOk = x => (typeof x === 'string' && x.startsWith('data:image/')) ? x : '';
+
+function cargarPerfilesLocal() {
+    if (perf.listo || nube.activa) return;
+    perf.listo = true;
+    try { let m = JSON.parse(localStorage.getItem(PERF_KEY) || 'null'); if (m) { perf.meta = m.meta || {}; perf.cont = m.cont || 0; } } catch (e) {}
+    try { perf.fotos = JSON.parse(localStorage.getItem(FOTO_KEY) || '{}') || {}; } catch (e) {}
+}
+function guardarPerfilesLocal() {
+    try { localStorage.setItem(PERF_KEY, JSON.stringify({ meta: perf.meta, cont: perf.cont })); localStorage.setItem(FOTO_KEY, JSON.stringify(perf.fotos)); return true; }
+    catch (e) { alert('No hay espacio en la memoria del navegador para tantas fotos. Usa la versión en línea (con Firebase) para guardar los perfiles.'); return false; }
+}
+function edadDe(n) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(n || '')) return '';
+    let h = new Date(), b = new Date(n + 'T12:00:00'), e = h.getFullYear() - b.getFullYear();
+    if (h.getMonth() < b.getMonth() || (h.getMonth() === b.getMonth() && h.getDate() < b.getDate())) e--;
+    return e >= 0 ? e : '';
+}
+function perfilesCambio() {
+    if (tabActiva() === 'Perfiles' && nube.rol === 'admin' || (!nube.activa && tabActiva() === 'Perfiles')) pintarListaPerfiles();
+}
+
+/* Reduce la foto en el navegador antes de guardarla (así pesa ~30-60 KB en vez de varios MB) */
+function cargarImg(src) {
+    return new Promise((ok, ko) => {
+        let im = new Image(), url = null;
+        im.onload = () => { if (url) URL.revokeObjectURL(url); ok(im); };
+        im.onerror = () => { if (url) URL.revokeObjectURL(url); ko(new Error('No se pudo leer la imagen')); };
+        if (typeof src === 'string') im.src = src; else { url = URL.createObjectURL(src); im.src = url; }
+    });
+}
+async function reducirImg(file, tipo) {
+    let im = await cargarImg(file), W = im.naturalWidth, H = im.naturalHeight, c = document.createElement('canvas'), x = c.getContext('2d');
+    if (tipo === 'r') {                       // cuadrada, centrada un poco hacia arriba (ahí está la cara)
+        let l = Math.min(W, H), sx = (W - l) / 2, sy = Math.max(0, (H - l) * 0.2);
+        c.width = c.height = 320; x.drawImage(im, sx, sy, l, l, 0, 0, 320, 320);
+        return c.toDataURL('image/jpeg', 0.8);
+    }
+    let k = Math.min(1, 600 / W, 800 / H);
+    c.width = Math.max(1, Math.round(W * k)); c.height = Math.max(1, Math.round(H * k));
+    x.drawImage(im, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.75);
+}
+async function miniDe(dataUrl) {
+    if (!dataUrl) return '';
+    try { let im = await cargarImg(dataUrl), c = document.createElement('canvas'); c.width = c.height = 96; c.getContext('2d').drawImage(im, 0, 0, 96, 96); return c.toDataURL('image/jpeg', 0.7); }
+    catch (e) { return ''; }
+}
+
+function perfilVacio() { return { nombre: '', nac: '', ciudad: '', socio: true, club: '', utr: '', cat: '', aut: false, obs: '' }; }
+
+function renderPerfiles() {
+    cargarPerfilesLocal();
+    const cont = document.getElementById('tab_Perfiles');
+    if (!puedeEditar()) { cont.innerHTML = ''; return; }
+    cont.innerHTML = `<div class="bg-white p-4 rounded-lg shadow-md">
+        <div class="flex flex-wrap items-center gap-3 mb-3">
+            <h2 class="text-xl font-bold text-gray-800">🪪 Perfiles de jugadores</h2>
+            <button id="perf_nuevo" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm font-bold">＋ Nuevo perfil</button>
+            <input id="perf_buscar" type="search" class="field" style="max-width:260px" placeholder="Buscar nombre, ciudad, club o n.º…" value="${esc(perf.q)}">
+            <select id="perf_fclub" class="field" style="max-width:220px"></select>
+            <select id="perf_fcat" class="field" style="max-width:170px"><option value="">Todas las categorías</option>${categorias.map(c => `<option value="${c}" ${perf.fcat === c ? 'selected' : ''}>Categoría ${c}</option>`).join('')}</select>
+            <span id="perf_total" class="text-sm text-gray-500"></span>
+        </div>
+        <p class="text-xs text-gray-500 mb-3">Los perfiles (fotos, fecha de nacimiento, ciudad, club) solo los ven los administradores. El número de registro se asigna en orden y no tiene relación con el nivel de juego.</p>
+        <div id="perf_error" class="text-sm text-red-700 mb-2"></div>
+        <div id="perf_lista"></div></div>`;
+    pintarListaPerfiles();
+}
+
+function pintarListaPerfiles() {
+    const lista = document.getElementById('perf_lista');
+    if (!lista) return;
+    document.getElementById('perf_error').textContent = perf.error;
+    let ids = Object.keys(perf.meta);
+    // filtro por club
+    let clubes = Array.from(new Set(ids.map(i => perf.meta[i].socio === false ? '' : String(perf.meta[i].club || '').trim()).filter(x => x))).sort((a, b) => a.localeCompare(b));
+    let fc = document.getElementById('perf_fclub');
+    if (perf.fclub && perf.fclub !== '__libre' && !clubes.includes(perf.fclub)) perf.fclub = '';
+    fc.innerHTML = `<option value="">Todos los clubes</option><option value="__libre" ${perf.fclub === '__libre' ? 'selected' : ''}>Libres (sin club)</option>` + clubes.map(c => `<option ${perf.fclub === c ? 'selected' : ''}>${esc(c)}</option>`).join('');
+    const norm = t => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    let q = norm(perf.q).trim();
+    let vis = ids.filter(i => {
+        let m = perf.meta[i];
+        if (perf.fcat && m.cat !== perf.fcat) return false;
+        if (perf.fclub === '__libre' ? m.socio !== false : (perf.fclub && String(m.club || '').trim() !== perf.fclub)) return false;
+        if (!q) return true;
+        return norm([m.nombre, m.ciudad, m.club, numTxt(m.num || 0), String(parseInt(m.num) || '')].join(' ')).includes(q);
+    }).sort((a, b) => norm(perf.meta[a].nombre).localeCompare(norm(perf.meta[b].nombre)));
+    document.getElementById('perf_total').textContent = `${vis.length} de ${ids.length} perfil(es)`;
+    if (!ids.length) { lista.innerHTML = '<p class="text-sm text-gray-500 py-6 text-center">' + (perf.listo ? 'Aún no hay perfiles. Pulsa "＋ Nuevo perfil" para dar de alta al primero.' : 'Cargando…') + '</p>'; return; }
+    if (!vis.length) { lista.innerHTML = '<p class="text-sm text-gray-500 py-6 text-center">Ningún perfil coincide con la búsqueda.</p>'; return; }
+    lista.innerHTML = '<div class="grid gap-3" style="grid-template-columns:repeat(auto-fill,minmax(250px,1fr))">' + vis.map(i => {
+        let m = perf.meta[i], mini = imgOk(m.mini), e = edadDe(m.nac), nf = (m.fr ? 1 : 0) + (m.fd ? 1 : 0) + (m.fc ? 1 : 0);
+        return `<div class="perf-card border rounded-lg p-3 flex gap-3 items-start bg-gray-50 hover:bg-green-50 cursor-pointer" data-id="${esc(i)}">
+            <div class="shrink-0 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center text-gray-400 text-2xl" style="width:64px;height:64px">${mini ? `<img src="${mini}" style="width:64px;height:64px;object-fit:cover">` : '👤'}</div>
+            <div class="min-w-0 text-sm">
+                <div class="font-bold text-gray-800 break-words">${esc(m.nombre || '(sin nombre)')}</div>
+                <div class="text-xs text-gray-500">Reg. <span class="font-mono font-bold">${numTxt(m.num || 0)}</span>${e !== '' ? ` · ${e} años` : ''}</div>
+                <div class="text-xs text-gray-600 break-words">${esc(m.ciudad || '')}${m.ciudad ? ' · ' : ''}${m.socio === false ? 'Libre' : esc(m.club || 'Club sin indicar')}</div>
+                <div class="mt-1 flex flex-wrap gap-1 text-xs">${m.utr !== '' && m.utr != null ? `<span class="bg-blue-100 text-blue-800 rounded px-2">UTR ${esc(m.utr)}</span>` : ''}${m.cat ? `<span class="bg-green-100 text-green-800 rounded px-2">Cat ${esc(m.cat)}</span>` : ''}<span class="bg-gray-100 text-gray-600 rounded px-2">📷 ${nf}/3</span></div>
+            </div></div>`;
+    }).join('') + '</div>';
+}
+
+/* ----- Formulario (ventana) ----- */
+function abrirPerfil(id) {
+    cargarPerfilesLocal();
+    let m = id ? perf.meta[id] : null;
+    perf.ed = { id: id || null, num: m ? m.num : 0, d: Object.assign(perfilVacio(), m ? { nombre: m.nombre, nac: m.nac, ciudad: m.ciudad, socio: m.socio !== false, club: m.club, utr: m.utr == null ? '' : m.utr, cat: m.cat, aut: !!m.aut, obs: m.obs } : {}),
+                f: { r: '', d: '', c: '' }, cargando: false, guardando: false };
+    document.getElementById('perf_form').innerHTML = formPerfil();
+    document.getElementById('modal_perfil').style.display = 'block';
+    pintarFotosPerfil();
+    if (id) {
+        if (!nube.activa) { let f = perf.fotos[id] || {}; ['r', 'd', 'c'].forEach(k => { perf.ed.f[k] = imgOk(f[k]); }); pintarFotosPerfil(); }
+        else if (nube.api) {
+            perf.ed.cargando = true; pintarFotosPerfil();
+            let ed = perf.ed;
+            nube.api.get(nube.api.ref(nube.rtdb, 'perfiles/fotos/' + id)).then(s => {
+                if (perf.ed !== ed) return;
+                let f = s.val() || {}; ['r', 'd', 'c'].forEach(k => { if (!ed.f[k]) ed.f[k] = imgOk(f[k]); });
+                ed.cargando = false; pintarFotosPerfil();
+            }).catch(e => { if (perf.ed === ed) { ed.cargando = false; pintarFotosPerfil(); alert('No se pudieron cargar las fotos: ' + e.message); } });
+        }
+    }
+}
+function cerrarPerfil() { perf.ed = null; document.getElementById('modal_perfil').style.display = 'none'; document.getElementById('perf_form').innerHTML = ''; }
+
+function formPerfil() {
+    const E = perf.ed, d = E.d, v = k => esc(d[k] == null ? '' : d[k]);
+    const lab = t => `<label class="text-xs font-semibold text-gray-600">${t}</label>`;
+    const hoy = new Date().toISOString().slice(0, 10);
+    return `<div class="flex flex-wrap justify-between items-start gap-2 mb-3">
+        <h2 class="text-xl font-bold text-green-800">${E.id ? 'Perfil de jugador' : 'Nuevo perfil de jugador'}</h2>
+        ${E.num ? `<span class="bg-gray-800 text-white rounded px-3 py-1 font-mono font-bold">N.º de registro ${numTxt(E.num)}</span>` : '<span class="text-xs text-gray-500">El número de registro se asigna al guardar.</span>'}</div>
+        <div class="grid gap-3 mb-4" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
+            <div style="grid-column:1/-1">${lab('Nombre completo *')}<input class="field pf-in" data-k="nombre" value="${v('nombre')}" placeholder="Nombre y apellidos"></div>
+            <div>${lab('Fecha de nacimiento')}<input type="date" class="field pf-in" data-k="nac" max="${hoy}" value="${v('nac')}"><div id="pf_edad" class="text-xs text-gray-500">${edadDe(d.nac) !== '' ? edadDe(d.nac) + ' años' : ''}</div></div>
+            <div>${lab('Ciudad donde vive')}<input class="field pf-in" data-k="ciudad" value="${v('ciudad')}" placeholder="Ej. Querétaro"></div>
+            <div>${lab('Club deportivo')}
+                <div class="flex gap-3 text-sm my-1"><label><input type="radio" name="pf_socio" class="pf-socio" value="1" ${d.socio ? 'checked' : ''}> Socio de un club</label><label><input type="radio" name="pf_socio" class="pf-socio" value="0" ${d.socio ? '' : 'checked'}> Libre</label></div>
+                <input id="pf_club" class="field pf-in" data-k="club" value="${v('club')}" placeholder="Nombre del club" list="pf_clubes" ${d.socio ? '' : 'disabled'}>
+                <datalist id="pf_clubes">${Array.from(new Set(Object.values(perf.meta).map(m => String(m.club || '').trim()).filter(x => x))).map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
+            <div>${lab('Puntos UTR (opcional)')}<input type="number" step="0.01" min="1" max="16.5" class="field pf-in" data-k="utr" value="${v('utr')}" placeholder="1.00 – 16.50"></div>
+            <div>${lab('Categoría (opcional)')}<select class="field pf-in" data-k="cat"><option value="">— sin definir —</option>${categorias.map(c => `<option value="${c}" ${d.cat === c ? 'selected' : ''}>Categoría ${c}</option>`).join('')}</select></div>
+            <div style="grid-column:1/-1">${lab('Observaciones (opcional)')}<input class="field pf-in" data-k="obs" value="${v('obs')}" placeholder="Mano dominante, lesiones a considerar, etc."></div>
+            <label class="flex items-center gap-2 text-sm" style="grid-column:1/-1"><input type="checkbox" class="pf-in" data-k="aut" ${d.aut ? 'checked' : ''}> Cuenta con autorización para guardar y usar sus fotografías (si es menor de edad, de su padre, madre o tutor)</label>
+        </div>
+        <div class="mb-1 font-bold text-sm text-gray-700">Fotografías</div>
+        <div id="pf_fotos" class="grid gap-3 mb-4" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))"></div>
+        <div class="flex flex-wrap gap-2 justify-between border-t pt-3">
+            <div>${E.id ? '<button id="pf_borrar" class="bg-red-100 text-red-700 border border-red-300 px-3 py-2 rounded text-sm font-bold">Eliminar perfil</button>' : ''}</div>
+            <div class="flex gap-2"><button id="pf_cancelar" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded font-bold">Cancelar</button>
+            <button id="pf_guardar" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-bold">Guardar perfil</button></div></div>`;
+}
+function pintarFotosPerfil() {
+    const E = perf.ed, cont = document.getElementById('pf_fotos');
+    if (!E || !cont) return;
+    cont.innerHTML = FOTOS_PERFIL.map(([k, t, ayuda]) => {
+        let img = imgOk(E.f[k]);
+        return `<div class="text-center"><div class="font-bold text-xs text-gray-700">${t}</div><div class="text-xs text-gray-500 mb-1">${ayuda}</div>
+            <div class="bg-gray-100 border rounded flex items-center justify-center overflow-hidden mx-auto" style="width:100%;aspect-ratio:${k === 'r' ? '1/1' : '3/4'}">${img ? `<img src="${img}" style="width:100%;height:100%;object-fit:${k === 'r' ? 'cover' : 'contain'}">` : `<span class="text-gray-400 text-sm">${E.cargando ? 'Cargando…' : '📷 sin foto'}</span>`}</div>
+            <div class="mt-1 flex justify-center gap-2"><label class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs font-bold">${img ? 'Cambiar' : 'Subir / tomar foto'}<input type="file" accept="image/*" class="pf-foto" data-k="${k}" style="display:none"></label>
+            ${img ? `<button class="pf-quitar bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-xs font-bold" data-k="${k}">Quitar</button>` : ''}</div></div>`;
+    }).join('');
+}
+
+async function siguienteNumero() {
+    if (nube.activa && nube.api && nube.api.runTransaction) {
+        let r = await nube.api.runTransaction(nube.api.ref(nube.rtdb, 'perfiles/cont'), v => (parseInt(v) || 0) + 1);
+        let n = parseInt(r.snapshot.val());
+        let mayor = Math.max(0, ...Object.values(perf.meta).map(m => parseInt(m.num) || 0));
+        if (n > mayor) return n;
+        return mayor + 1;     // el contador estaba atrasado (por ejemplo, perfiles importados): se continúa después del mayor
+    }
+    let mayor = Math.max(perf.cont || 0, 0, ...Object.values(perf.meta).map(m => parseInt(m.num) || 0));
+    perf.cont = mayor + 1; return perf.cont;
+}
+
+async function guardarPerfil() {
+    const E = perf.ed;
+    if (!E || E.guardando) return;
+    let d = E.d, nombre = String(d.nombre || '').trim().replace(/\s+/g, ' ');
+    if (!nombre) { alert('Escribe el nombre del jugador.'); return; }
+    if (d.nac && d.nac > new Date().toISOString().slice(0, 10)) { alert('La fecha de nacimiento no puede ser futura.'); return; }
+    let utr = String(d.utr).trim();
+    if (utr !== '' && !(parseFloat(utr) >= 1 && parseFloat(utr) <= 16.5)) { alert('El UTR debe estar entre 1.00 y 16.50 (o déjalo vacío).'); return; }
+    const norm = t => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+    let dup = Object.keys(perf.meta).find(i => i !== E.id && norm(perf.meta[i].nombre) === norm(nombre) && (perf.meta[i].nac || '') === (d.nac || ''));
+    if (dup && !confirm(`Ya existe un perfil de "${perf.meta[dup].nombre}" con el mismo nombre y fecha de nacimiento (reg. ${numTxt(perf.meta[dup].num)}).\n\n¿Guardar de todos modos como otro perfil?`)) return;
+    E.guardando = true;
+    let btn = document.getElementById('pf_guardar'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+    try {
+        let id = E.id || ('p' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36));
+        let num = E.num || await siguienteNumero();
+        let meta = { nombre, nac: d.nac || '', ciudad: String(d.ciudad || '').trim(), socio: !!d.socio, club: d.socio ? String(d.club || '').trim() : '', utr: utr === '' ? '' : parseFloat(utr),
+                     cat: d.cat || '', aut: !!d.aut, obs: String(d.obs || '').trim(), num, fr: !!E.f.r, fd: !!E.f.d, fc: !!E.f.c, mini: await miniDe(E.f.r), act: Date.now() };
+        let fotos = {}; ['r', 'd', 'c'].forEach(k => { if (E.f[k]) fotos[k] = E.f[k]; });
+        if (nube.activa) {
+            await nube.api.update(nube.api.ref(nube.rtdb), { ['perfiles/meta/' + id]: meta, ['perfiles/fotos/' + id]: Object.keys(fotos).length ? fotos : null });
+        } else {
+            perf.meta[id] = meta; if (Object.keys(fotos).length) perf.fotos[id] = fotos; else delete perf.fotos[id];
+            if (!guardarPerfilesLocal()) { E.guardando = false; if (btn) { btn.disabled = false; btn.textContent = 'Guardar perfil'; } return; }
+        }
+        cerrarPerfil(); pintarListaPerfiles();
+    } catch (e) {
+        E.guardando = false; if (btn) { btn.disabled = false; btn.textContent = 'Guardar perfil'; }
+        alert('No se pudo guardar el perfil: ' + (e && e.message ? e.message : e));
+    }
+}
+async function borrarPerfil() {
+    const E = perf.ed;
+    if (!E || !E.id) return;
+    if (!confirm(`¿Eliminar el perfil de "${E.d.nombre}" (reg. ${numTxt(E.num)})?\n\nSe borran también sus fotografías. El número de registro no se reutiliza.`)) return;
+    try {
+        if (nube.activa) await nube.api.update(nube.api.ref(nube.rtdb), { ['perfiles/meta/' + E.id]: null, ['perfiles/fotos/' + E.id]: null });
+        else { perf.cont = Math.max(perf.cont || 0, E.num); delete perf.meta[E.id]; delete perf.fotos[E.id]; guardarPerfilesLocal(); }
+        cerrarPerfil(); pintarListaPerfiles();
+    } catch (e) { alert('No se pudo eliminar: ' + (e && e.message ? e.message : e)); }
+}
+
+document.addEventListener('click', e => {
+    let t = e.target;
+    if (t.id === 'perf_nuevo') { abrirPerfil(null); return; }
+    let card = t.closest && t.closest('.perf-card'); if (card) { abrirPerfil(card.dataset.id); return; }
+    if (t.id === 'pf_cancelar' || t.id === 'modal_perfil') { cerrarPerfil(); return; }
+    if (t.id === 'pf_guardar') { guardarPerfil(); return; }
+    if (t.id === 'pf_borrar') { borrarPerfil(); return; }
+    if (t.classList && t.classList.contains('pf-quitar') && perf.ed) { perf.ed.f[t.dataset.k] = ''; pintarFotosPerfil(); }
+});
+document.addEventListener('input', e => {
+    let t = e.target;
+    if (t.id === 'perf_buscar') { perf.q = t.value; pintarListaPerfiles(); return; }
+    if (t.classList && t.classList.contains('pf-in') && perf.ed) {
+        if (t.type === 'checkbox') perf.ed.d[t.dataset.k] = t.checked; else perf.ed.d[t.dataset.k] = t.value;
+        if (t.dataset.k === 'nac') { let el = document.getElementById('pf_edad'), a = edadDe(t.value); if (el) el.textContent = a !== '' ? a + ' años' : ''; }
+    }
+});
+document.addEventListener('change', async e => {
+    let t = e.target;
+    if (t.id === 'perf_fclub') { perf.fclub = t.value; pintarListaPerfiles(); return; }
+    if (t.id === 'perf_fcat') { perf.fcat = t.value; pintarListaPerfiles(); return; }
+    if (!perf.ed) return;
+    if (t.classList.contains('pf-in')) { perf.ed.d[t.dataset.k] = t.type === 'checkbox' ? t.checked : t.value; return; }
+    if (t.classList.contains('pf-socio')) {
+        perf.ed.d.socio = t.value === '1';
+        let c = document.getElementById('pf_club'); c.disabled = !perf.ed.d.socio; if (!perf.ed.d.socio) { perf.ed.d.club = ''; c.value = ''; }
+        return;
+    }
+    if (t.classList.contains('pf-foto') && t.files && t.files[0]) {
+        let k = t.dataset.k, ed = perf.ed;
+        try { let url = await reducirImg(t.files[0], k); if (perf.ed === ed) { ed.f[k] = url; pintarFotosPerfil(); } }
+        catch (err) { alert('No se pudo usar esa imagen: ' + err.message); }
+        t.value = '';
+    }
+});
 
 /* ---------- Programación de horarios y asignación de canchas ---------- */
 const DURACIONES = [60, 75, 90, 105, 120, 135, 150, 165, 180];
