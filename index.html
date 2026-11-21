@@ -48,6 +48,7 @@
 
     <div id="barra_alta" class="items-center justify-center gap-2 text-sm mb-4" style="display:none">
         <button id="btn_alta" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded font-bold">🪪 Registra tu perfil de jugador</button>
+        <button id="btn_insc" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded font-bold">📝 Inscríbete a un torneo</button>
         <button id="btn_qr" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded font-bold" title="Código QR del registro">📱 Ver QR</button>
     </div>
 
@@ -103,10 +104,13 @@
     <div id="modal_alta" class="fixed inset-0 overflow-y-auto bg-gray-100" style="display:none;z-index:60">
         <div id="alta_form" class="bg-white rounded-lg shadow-xl mx-auto my-4 p-4" style="max-width:860px;width:96%"></div>
     </div>
+    <div id="modal_insc" class="fixed inset-0 overflow-y-auto bg-gray-100" style="display:none;z-index:60">
+        <div id="insc_form" class="bg-white rounded-lg shadow-xl mx-auto my-4 p-4" style="max-width:860px;width:96%"></div>
+    </div>
     <div id="modal_qr" class="fixed inset-0 overflow-y-auto" style="display:none;z-index:55;background:rgba(0,0,0,.6)">
         <div class="bg-white rounded-lg shadow-xl mx-auto my-8 p-5 text-center" style="max-width:420px;width:94%">
-            <h2 class="text-xl font-bold text-green-700 mb-1">Registro de jugadores</h2>
-            <p class="text-sm text-gray-600 mb-2">Escanea con la cámara del celular para dar de alta tu perfil.</p>
+            <h2 id="qr_title" class="text-xl font-bold text-green-700 mb-1">Registro de jugadores</h2>
+            <p id="qr_sub" class="text-sm text-gray-600 mb-2">Escanea con la cámara del celular para dar de alta tu perfil.</p>
             <div id="qr_img" class="mx-auto" style="width:280px;height:280px"></div>
             <div class="mt-3 flex flex-wrap gap-2 justify-center"><button id="qr_png" class="bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold">⬇ Descargar</button><button id="qr_imprimir" class="bg-gray-700 text-white px-3 py-1 rounded text-xs font-bold">🖨 Imprimir cartel</button><button id="qr_copiar" class="bg-gray-200 px-3 py-1 rounded text-xs font-bold">Copiar enlace</button><button id="qr_cerrar" class="bg-gray-200 px-3 py-1 rounded text-xs font-bold">Cerrar</button></div>
         </div></div>
@@ -540,6 +544,7 @@ function pintarBarra() {
     document.getElementById('barra_nube').style.display = 'flex';
     document.getElementById('barra_alta').style.display = 'flex';
     if (!alta.auto && /[?&]alta(=|&|$)/.test(location.search)) { alta.auto = true; abrirAlta(); }   // enlace del QR
+    if (!ins.auto && /[?&](t|torneos)(=|&|$)/.test(location.search)) { ins.auto = true; abrirInsc(new URLSearchParams(location.search).get('t') || ''); }
     let txt;
     if (nube.error) txt = '⚠️ ' + nube.error;
     else if (nube.rol === 'admin') txt = `✏️ Administrador: ${nube.user.email}` + (nube.hora ? ` · sincronizado ${nube.hora}` : '');
@@ -589,7 +594,7 @@ function soltarEscuchas(todo) {
 /* Conecta las lecturas que corresponden al nivel del usuario */
 function configurarEscuchas() {
     soltarEscuchas(false);
-    if (nube.rol !== 'admin') { perf.meta = {}; perf.sol = {}; perf.listo = false; perf.error = ''; pintarBadgePerfiles(); }
+    if (nube.rol !== 'admin') { perf.meta = {}; perf.sol = {}; perf.ins = {}; perf.gest = {}; perf.listo = false; perf.error = ''; pintarBadgePerfiles(); }
     const api = nube.api, R = p => api.ref(nube.rtdb, p);
     const fallo = e => { nube.error = 'Error de lectura: ' + e.message; pintarBarra(); };
     if (nube.rol === 'admin') {
@@ -598,6 +603,8 @@ function configurarEscuchas() {
         nube.bajas.push(api.onValue(R('publico'), s => { nube.pub = s.val() || {}; llego(); }, fallo));
         nube.bajas.push(api.onValue(R('privado'), s => { nube.priv = s.val() || {}; llego(); }, fallo));
         nube.bajas.push(api.onValue(R('marcadores'), s => { nube.marc = s.val() || {}; pintarCapturistas(); }, fallo));
+        nube.bajas.push(api.onValue(R('inscripciones'), s => { perf.ins = s.val() || {}; insCambio(); }, () => {}));
+        nube.bajas.push(api.onValue(R('gest'), s => { perf.gest = s.val() || {}; insCambio(); }, () => {}));
         nube.bajas.push(api.onValue(R('altas/solicitudes'), s => { perf.sol = s.val() || {}; perfilesCambio(); }, () => {}));
         nube.bajas.push(api.onValue(R('altas/abierto'), s => { perf.abierto = s.val() === true; perfilesCambio(); }, () => {}));
         nube.bajas.push(api.onValue(R('altas/contacto'), s => { perf.contacto = s.val() || ''; if (tabActiva() !== 'Perfiles') return; perfilesCambio(); }, () => {}));
@@ -1063,7 +1070,7 @@ function openTab(tabName) {
 const TIPOS_TORNEO = ['Interno (socios del club)', 'Open (con invitados de otros clubes)', 'Dual meet', 'Interclubes', 'Avante (dobles femenil)', 'Regional', 'Nacional', 'UTR', 'Otro'];
 const ESTADOS_TORNEO = ['Propuesto', 'Confirmado', 'Inscripciones abiertas', 'En curso', 'Terminado', 'Cancelado'];
 const DIAS_LARGOS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-let torEdit = '', torAnio = '';
+let torEdit = '', torAnio = '', torIns = '';
 
 function diasEntre(f1, f2) {
     let out = [];
@@ -1314,6 +1321,8 @@ function renderTorneos() {
         </div>`;
     }
 
+    if (admin && torIns && db.torneos[torIns]) html += htmlInscripciones(torIns);
+
     // ----- Calendario -----
     let lista = ids.map(id => Object.assign({ id }, db.torneos[id])).filter(x => !torAnio || (x.f1 || '').slice(0, 4) === torAnio);
     lista.sort((a, b) => (a.f1 || '9999').localeCompare(b.f1 || '9999') || String(a.nombre).localeCompare(String(b.nombre)));
@@ -1353,6 +1362,8 @@ function renderTorneos() {
                     <td class="p-2 border whitespace-nowrap no-print">${db.archivo[x.id] ? `<button class="tor-btn px-2 py-1 rounded text-xs font-bold bg-amber-100 text-amber-900 border border-amber-400 hover:bg-amber-200" data-acc="ver" data-id="${x.id}">📚 Ver resultados</button>` : (activo ? '<span class="text-xs text-green-700 font-bold">ver en las pestañas de categorías</span>' : '<span class="text-xs text-gray-400">sin resultados</span>')}</td>
                     ${admin ? `<td class="p-2 border whitespace-nowrap no-print">
                         <button class="tor-btn px-2 py-1 rounded text-xs font-bold bg-gray-200 hover:bg-gray-300" data-acc="editar" data-id="${x.id}">Editar</button>
+                        ${nube.activa ? `<button class="tor-btn px-2 py-1 rounded text-xs font-bold bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200" data-acc="ins" data-id="${x.id}">📥 Inscripciones${nPend(x.id) ? ' (' + nPend(x.id) + ' por revisar)' : ''}</button>
+                        <button class="tor-btn px-2 py-1 rounded text-xs font-bold bg-gray-100 hover:bg-gray-200" data-acc="qrins" data-id="${x.id}" title="QR y cartel de inscripción de este torneo">📲 QR</button>` : ''}
                         ${activo ? `<button class="tor-btn px-2 py-1 rounded text-xs font-bold bg-amber-500 text-white hover:bg-amber-600" data-acc="terminar" title="Guarda los resultados en el histórico y deja la captura en blanco">Dar por terminado</button>` : ''}
                         ${activo ? '' : `<button class="tor-btn px-2 py-1 rounded text-xs font-bold bg-green-600 text-white hover:bg-green-700" data-acc="activar" data-id="${x.id}" title="Trabajar con las inscripciones y marcadores de este torneo">Poner en operación</button>
                         <button class="tor-btn px-2 py-1 rounded text-xs font-bold bg-red-100 text-red-700 border border-red-300" data-acc="eliminar" data-id="${x.id}">Eliminar</button>`}</td>` : ''}
@@ -1530,7 +1541,7 @@ function renderRanking() {
 /* Datos personales y fotografías: solo los ven los administradores. Viven fuera del torneo, en su propio nodo:
    perfiles/meta/{id} (datos + miniatura), perfiles/fotos/{id} (3 fotos, solo al abrir el perfil), perfiles/cont (contador). */
 const PERF_KEY = 'torneoDinPerfiles1', FOTO_KEY = 'torneoDinFotos1';
-const perf = { meta: {}, sol: {}, abierto: false, contacto: '', fotos: {}, cont: 0, listo: false, error: '', ed: null, q: '', fclub: '', fcat: '', vista: 'perfiles', rk: { per: '', cat: '', mod: 'S' } };
+const perf = { ins: {}, gest: {}, meta: {}, sol: {}, abierto: false, contacto: '', fotos: {}, cont: 0, listo: false, error: '', ed: null, q: '', fclub: '', fcat: '', vista: 'perfiles', rk: { per: '', cat: '', mod: 'S' } };
 const FOTOS_PERFIL = [['r', 'Rostro', 'Solo la cara, de frente'], ['d', 'Cuerpo completo · ropa de tenis', 'Con raqueta y pelota'], ['c', 'Cuerpo completo · ropa normal', 'Pants y/o chamarra']];
 const numTxt = n => String(n).padStart(4, '0');
 const imgOk = x => (typeof x === 'string' && x.startsWith('data:image/')) ? x : '';
@@ -1918,19 +1929,40 @@ function qrPng(texto, celda, nombre) {
     for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (q.isDark(r, k)) x.fillRect((k + m) * celda, (r + m) * celda, celda, celda);
     c.toBlob(b => { let a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = nombre || 'qr-registro-jugadores.png'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); });
 }
-function imprimirCartel() {
-    let url = urlAlta(), w = window.open('', '_blank');
+function urlBase() { return location.origin + location.pathname.replace(/index\.html$/, ''); }
+function urlTorneos() { return urlBase() + '?torneos=1'; }
+function urlIns(tid) { return urlBase() + '?t=' + encodeURIComponent(tid); }
+let qrCtx = null;
+function ctxAlta() { return { titulo: 'Registro de jugadores', sub: 'Escanea con la cámara del celular para dar de alta tu perfil.', url: urlAlta(), archivo: 'qr-registro-jugadores.png',
+    cartel: { titulo: '🎾 Registra tu perfil de jugador', sub: 'Tenis · Pádel · Pickleball', url: urlAlta(), nota: 'Escanea el código con la cámara de tu celular y llena tus datos.<br><b>Esto crea tu perfil en la plataforma; no te inscribe a ningún torneo.</b><br>Para inscribirte a un torneo avisa al organizador.' } }; }
+function ctxTorneos() { return { titulo: 'Inscripción a torneos', sub: 'Escanea para ver los torneos con inscripciones abiertas e inscribirte.', url: urlTorneos(), archivo: 'qr-torneos-abiertos.png',
+    cartel: { titulo: '🏆 Inscríbete a los torneos', sub: 'Tenis · Pádel · Pickleball', url: urlTorneos(), nota: 'Escanea el código y elige el torneo.<br><b>Necesitas tu número de registro de jugador.</b> Si aún no lo tienes, registra tu perfil primero con el otro código del club.' } }; }
+function ctxTorneo(T, tid) {
+    let cats = Object.keys(T.cats || {}).filter(c => T.cats[c] && T.cats[c].on).map(c => catNomK(T.cats[c], c) + ' (' + PRUEBAS[modPrueba(T.cats[c])].toLowerCase() + ')');
+    let lineas = [rangoFechas(T) + (T.sede ? ' · ' + T.sede : ''), cats.length ? 'Categorías: ' + cats.join(', ') : '', T.cierre ? 'Inscripciones hasta el ' + fechaCorta(String(T.cierre).slice(0, 10)) + ', ' + String(T.cierre).slice(11, 16) + ' h' : '', cuotaTxt(T) ? 'Cuota: ' + cuotaTxt(T) : ''].filter(x => x);
+    return { titulo: 'Inscripciones: ' + (T.nombre || 'torneo'), sub: 'Escanea el código para inscribirte', url: urlIns(tid), archivo: 'qr-inscripcion-' + tid + '.png',
+        cartel: { titulo: '🏆 ' + (T.nombre || 'Torneo'), sub: 'Inscripciones abiertas', url: urlIns(tid), lineas, nota: 'Escanea el código, captura tus datos y elige tu categoría.<br><b>Necesitas tu número de registro de jugador</b> (si aún no lo tienes, regístrate primero). El organizador confirma tu inscripción.' } };
+}
+function mostrarQR(o) {
+    qrCtx = o;
+    document.getElementById('qr_title').textContent = o.titulo; document.getElementById('qr_sub').textContent = o.sub;
+    document.getElementById('qr_img').innerHTML = qrSvg(o.url, 6).replace('<svg', '<svg style="width:100%;height:100%"');
+    document.getElementById('modal_qr').style.display = 'block';
+}
+function imprimirCartelGen(o) {
+    let w = window.open('', '_blank');
     if (!w) { alert('El navegador bloqueó la ventana. Permite ventanas emergentes para este sitio e inténtalo de nuevo.'); return; }
-    let club = esc((perf.contacto || '').split('|')[0].trim());
-    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Registro de jugadores</title><style>
-        body{font-family:Arial,sans-serif;text-align:center;margin:0;padding:30px}h1{font-size:44px;margin:10px 0;color:#15803d}h2{font-size:26px;font-weight:normal;margin:6px 0}
-        svg{width:430px;height:430px;margin:20px auto;display:block}.u{font-size:22px;font-weight:bold;word-break:break-all}.n{font-size:18px;color:#444;margin-top:24px;line-height:1.4}
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(o.titulo)}</title><style>
+        body{font-family:Arial,sans-serif;text-align:center;margin:0;padding:30px}h1{font-size:42px;margin:10px 0;color:#15803d}h2{font-size:26px;font-weight:normal;margin:6px 0}
+        svg{width:430px;height:430px;margin:20px auto;display:block}.u{font-size:22px;font-weight:bold;word-break:break-all}.l{font-size:20px;margin-top:8px}.n{font-size:18px;color:#444;margin-top:24px;line-height:1.4}
         @media print{@page{margin:12mm}}</style></head><body>
-        <h1>🎾 Registra tu perfil de jugador</h1><h2>Tenis · Pádel · Pickleball</h2>${qrSvg(url, 8)}
-        <div class="u">${esc(url.replace(/^https?:\/\//, ''))}</div>
-        <div class="n">Escanea el código con la cámara de tu celular y llena tus datos.<br><b>Esto crea tu perfil en la plataforma; no te inscribe a ningún torneo.</b><br>Para inscribirte a un torneo avisa al organizador.</div></body></html>`);
+        <h1>${esc(o.titulo)}</h1><h2>${esc(o.sub || '')}</h2>${qrSvg(o.url, 8)}
+        <div class="u">${esc(o.url.replace(/^https?:\/\//, ''))}</div>
+        ${(o.lineas || []).map(l => `<div class="l">${esc(l)}</div>`).join('')}
+        <div class="n">${o.nota || ''}</div></body></html>`);
     w.document.close(); w.focus(); setTimeout(() => w.print(), 400);
 }
+function imprimirCartel() { imprimirCartelGen(ctxAlta().cartel); }
 function copiarTexto(t, btn) {
     const ok = () => { if (btn) { let o = btn.textContent; btn.textContent = '✓ Copiado'; setTimeout(() => { btn.textContent = o; }, 1500); } };
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(ok, () => prompt('Copia el enlace:', t)); else prompt('Copia el enlace:', t);
@@ -1957,6 +1989,7 @@ function renderRegistro() {
                 <div><label class="text-xs font-bold text-gray-700">Contacto para temas de privacidad (se muestra en el aviso del formulario)</label>
                     <input id="reg_contacto" class="field text-sm" maxlength="200" value="${esc(perf.contacto)}" placeholder="Ej. Club Britania · direccion@club.mx · 442 000 0000">
                     <div class="text-xs text-gray-500 mt-1">Aquí el jugador sabrá a quién pedir que corrijan o borren sus datos.</div></div>
+                <div class="mt-4 pt-3 border-t"><div class="text-sm font-bold text-gray-700">QR general de inscripciones a torneos</div><div class="text-xs text-gray-500 mb-1">Un solo cartel permanente: abre la lista de torneos con inscripciones abiertas. Cada torneo además tiene su propio QR en la pestaña Torneos.</div><button id="reg_qr2" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs font-bold">Ver / imprimir QR de torneos</button></div>
             </div></div></div>`;
 }
 
@@ -2068,12 +2101,16 @@ async function enviarAlta() {
 document.addEventListener('click', async e => {
     let t = e.target, c = t.closest ? t.closest('button') : null;
     if (t.id === 'btn_alta') { abrirAlta(); return; }
-    if (t.id === 'btn_qr') { document.getElementById('qr_img').innerHTML = qrSvg(urlAlta(), 6).replace('<svg', '<svg style="width:100%;height:100%"'); document.getElementById('modal_qr').style.display = 'block'; return; }
+    if (t.id === 'btn_qr') { qrCtx = null; mostrarQR(ctxAlta()); return; }
+    if (t.id === 'btn_insc') { abrirInsc(''); return; }
     if (t.id === 'modal_qr' || t.id === 'qr_cerrar') { document.getElementById('modal_qr').style.display = 'none'; return; }
-    if (t.id === 'qr_png') { qrPng(urlAlta(), 12); return; }
-    if (t.id === 'qr_imprimir' || t.id === 'reg_print') { imprimirCartel(); return; }
+    if (t.id === 'qr_png') { let o = qrCtx || ctxAlta(); qrPng(o.url, 12, o.archivo); return; }
+    if (t.id === 'qr_imprimir') { imprimirCartelGen((qrCtx || ctxAlta()).cartel); return; }
+    if (t.id === 'reg_print') { imprimirCartel(); return; }
+    if (t.id === 'reg_qr2') { mostrarQR(ctxTorneos()); return; }
     if (t.id === 'reg_png') { qrPng(urlAlta(), 12); return; }
-    if (t.id === 'qr_copiar' || t.id === 'reg_copy') { copiarTexto(urlAlta(), t); return; }
+    if (t.id === 'qr_copiar') { copiarTexto((qrCtx || ctxAlta()).url, t); return; }
+    if (t.id === 'reg_copy') { copiarTexto(urlAlta(), t); return; }
     if (t.id === 'reg_toggle') { try { await nube.api.update(nube.api.ref(nube.rtdb), { 'altas/abierto': !perf.abierto }); } catch (x) { alert('No se pudo cambiar: ' + x.message); } return; }
     if (c && c.classList.contains('sol-ok')) { abrirSolicitud(c.dataset.k); return; }
     if (c && c.classList.contains('sol-no')) {
@@ -2107,6 +2144,351 @@ document.addEventListener('change', async e => {
         catch (err) { alert('No se pudo usar esa imagen: ' + err.message); }
         t.value = '';
     }
+});
+
+
+/* =====================================================================
+   INSCRIPCIONES A TORNEOS (distintas del alta de perfil)
+   Público: inscripciones/{torneo}/{id} (solo crear, solo con inscripciones abiertas)
+   Administrador: gest/{torneo}/{id}/{cat} -> estado de la inscripción y cobro
+   ===================================================================== */
+const PRUEBAS = { S: 'Singles', D: 'Dobles', M: 'Dobles mixtos' };
+const ESTADOS_INS = { S: 'Por revisar', C: 'Confirmada', L: 'Lista de espera', R: 'Rechazada' };
+function modPrueba(k) { return k && k.mod === 'D' ? (k.rama === 'M' ? 'M' : 'D') : 'S'; }
+function catNomK(k, c) { return (k.nombre && k.nombre !== c ? k.nombre : catAutoDe(k)) || c; }
+function cuotaDe(T) { let n = parseFloat(T.coop); if (!(n > 0)) return 0; return /pareja/i.test(T.coopNota || '') ? Math.round(n / 2 * 100) / 100 : n; }
+function cuotaTxt(T) { return T && parseFloat(T.coop) > 0 ? '$' + Number(T.coop).toLocaleString('es-MX') + (T.coopNota ? ' ' + T.coopNota : '') : ''; }
+function cierreVencido(T) { if (!T || !T.cierre) return false; let d = new Date(T.cierre); return !isNaN(d) && d < new Date(); }
+function insAbierta(T) { return !!T && T.estado === 'Inscripciones abiertas' && !cierreVencido(T); }
+function pesos(n) { return '$' + Number(n || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 }); }
+
+/* ----- Formulario público ----- */
+const ins = { T: null, tid: '', lista: [], d: null, sel: { S: '', D: '', M: '' }, par: {}, enviado: false, enviando: false, msg: '', auto: false };
+async function abrirInsc(tid) {
+    if (!nube.activa) return;
+    ins.d = { nombre: '', nac: '', sexo: '', reg: '', tel: '', tutor: '', aut: false }; ins.sel = { S: '', D: '', M: '' }; ins.par = {}; ins.enviado = false; ins.enviando = false; ins.msg = ''; ins.T = null; ins.tid = '';
+    document.getElementById('modal_insc').style.display = 'block';
+    document.getElementById('insc_form').innerHTML = '<p class="p-6 text-center text-gray-500">Cargando…</p>';
+    try {
+        let to = await fetch(baseDB() + '/publico/torneos.json').then(r => r.json()) || {};
+        ins.lista = Object.keys(to).filter(id => insAbierta(to[id])).map(id => Object.assign({ id }, to[id])).sort((a, b) => (a.f1 || '9').localeCompare(b.f1 || '9'));
+        if (tid) { ins.tid = tid; ins.T = to[tid] ? Object.assign({ id: tid }, to[tid]) : null; ins.cerrado = !insAbierta(to[tid]); }
+    } catch (e) { ins.lista = null; }
+    pintarInsc();
+}
+function cerrarInsc() { document.getElementById('modal_insc').style.display = 'none'; if (/[?&](t|torneos)(=|&|$)/.test(location.search)) history.replaceState(null, '', location.pathname); }
+function pintarInsc() {
+    const F = document.getElementById('insc_form'), T = ins.T;
+    const cerrar = '<button class="in-cerrar text-gray-500 hover:text-black text-2xl font-bold px-2" title="Cerrar">✕</button>';
+    if (ins.lista === null) { F.innerHTML = '<div class="p-6 text-center text-red-700">No se pudo conectar. Revisa tu internet e inténtalo de nuevo.</div><div class="text-center"><button class="in-cerrar bg-gray-200 px-4 py-2 rounded font-bold">Cerrar</button></div>'; return; }
+    if (ins.enviado) {
+        let c = cuotaTxt(T);
+        F.innerHTML = `<div class="text-center py-8"><div class="text-5xl mb-3">✅</div><h2 class="text-2xl font-bold text-green-700 mb-2">¡Solicitud de inscripción enviada!</h2>
+            <p class="text-gray-700 mb-1">Quedas inscrito cuando el organizador la confirme; te avisará por WhatsApp.</p>
+            ${c ? `<p class="text-sm text-gray-600 mb-1">Cuota: <b>${esc(c)}</b>. El organizador te indicará cómo pagar.</p>` : ''}
+            ${T.org || T.tel ? `<p class="text-sm text-gray-500 mb-3">Contacto: ${esc(T.org || '')} ${esc(T.tel || '')}</p>` : ''}
+            <button class="in-cerrar bg-green-600 text-white px-4 py-2 rounded font-bold">Cerrar</button></div>`;
+        return;
+    }
+    if (!T || ins.cerrado) {
+        let aviso = ins.tid ? `<div class="my-3 p-3 rounded bg-red-50 border border-red-300 text-sm text-red-800 font-bold">${T ? 'Las inscripciones de este torneo ya cerraron o aún no abren.' : 'No encontramos ese torneo.'}</div>` : '';
+        F.innerHTML = `<div class="flex justify-between items-start gap-2"><h2 class="text-2xl font-bold text-green-700">🏆 Torneos con inscripciones abiertas</h2>${cerrar}</div>${aviso}
+            ${ins.lista.length ? `<div class="grid gap-3 mt-3">${ins.lista.map(x => `<button class="in-sel text-left border rounded-lg p-3 bg-green-50 hover:bg-green-100" data-t="${esc(x.id)}"><div class="font-bold text-gray-800">${esc(x.nombre || '')}</div><div class="text-xs text-gray-600">${esc(rangoFechas(x))}${x.sede ? ' · ' + esc(x.sede) : ''}${x.cierre ? ' · cierre ' + esc(fechaCorta(String(x.cierre).slice(0, 10))) : ''}${cuotaTxt(x) ? ' · cuota ' + esc(cuotaTxt(x)) : ''}</div></button>`).join('')}</div>`
+            : '<p class="py-8 text-center text-gray-500">Por ahora no hay torneos con inscripciones abiertas.</p>'}
+        <p class="text-xs text-gray-500 mt-4">¿Aún no tienes número de registro? Primero registra tu perfil con el código QR del club (o el botón "Registra tu perfil de jugador").</p>`;
+        return;
+    }
+    const d = ins.d, lab = t => `<label class="text-xs font-semibold text-gray-600">${t}</label>`, v = k => esc(d[k] || '');
+    // pruebas disponibles según la rama
+    let grupos = { S: [], D: [], M: [] };
+    Object.keys(T.cats || {}).forEach(c => { let k = T.cats[c]; if (!k || !k.on) return; if ((k.rama === 'V' && d.sexo === 'F') || (k.rama === 'F' && d.sexo === 'V')) return; grupos[modPrueba(k)].push(c); });
+    let bloquePruebas = !d.sexo ? '<p class="text-sm text-gray-500">Elige tu rama para ver las categorías que te corresponden.</p>' :
+        ['S', 'D', 'M'].filter(g => grupos[g].length).map(g => `<div class="mb-3"><div class="text-sm font-bold text-gray-700">${PRUEBAS[g]} <span class="font-normal text-xs text-gray-500">(puedes elegir una)</span></div>
+            <label class="block text-sm"><input type="radio" class="in-rad" name="in_${g}" data-g="${g}" value="" ${!ins.sel[g] ? 'checked' : ''}> No participo en ${PRUEBAS[g].toLowerCase()}</label>
+            ${grupos[g].map(c => `<label class="block text-sm font-semibold"><input type="radio" class="in-rad" name="in_${g}" data-g="${g}" value="${c}" ${ins.sel[g] === c ? 'checked' : ''}> ${esc(catNomK(T.cats[c], c))}</label>
+                ${g !== 'S' && ins.sel[g] === c ? htmlParejaIns(c, lab) : ''}`).join('')}</div>`).join('') || '<p class="text-sm text-gray-500">Este torneo no tiene categorías para tu rama.</p>';
+    F.innerHTML = `<div class="flex justify-between items-start gap-2"><h2 class="text-2xl font-bold text-green-700">📝 ${esc(T.nombre || 'Torneo')}</h2>${cerrar}</div>
+        <div class="text-sm text-gray-600">${esc(rangoFechas(T))}${T.sede ? ' · ' + esc(T.sede) : ''}${T.cierre ? ' · inscripciones hasta ' + esc(fechaCorta(String(T.cierre).slice(0, 10))) + ', ' + esc(String(T.cierre).slice(11, 16)) + ' h' : ''}</div>
+        ${cuotaTxt(T) ? `<div class="text-sm font-bold text-green-800 mt-1">Cuota: ${esc(cuotaTxt(T))}</div>` : ''}
+        <div class="my-3 p-3 rounded bg-green-50 border border-green-300 text-sm"><b>Esto es tu inscripción a este torneo.</b> El organizador la confirma. Para jugar necesitas tener tu perfil de jugador (número de registro); si aún no lo tienes, escribe tus datos igual y el club lo da de alta.</div>
+        <div class="grid gap-3 mb-4" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
+            <div style="grid-column:1/-1">${lab('Nombre y apellidos *')}<input class="field in-in" data-k="nombre" maxlength="120" value="${v('nombre')}" autocomplete="name"></div>
+            <div>${lab('Fecha de nacimiento *')}<input type="date" class="field in-in" data-k="nac" value="${v('nac')}"></div>
+            <div>${lab('Rama *')}<select class="field in-in" data-k="sexo"><option value="">—</option><option value="V" ${d.sexo === 'V' ? 'selected' : ''}>Varonil</option><option value="F" ${d.sexo === 'F' ? 'selected' : ''}>Femenil</option></select></div>
+            <div>${lab('Número de registro (si ya lo tienes)')}<input class="field in-in" data-k="reg" inputmode="numeric" maxlength="8" value="${v('reg')}" placeholder="Ej. 0012"></div>
+            <div>${lab('WhatsApp / celular *')}<input type="tel" inputmode="tel" class="field in-in" data-k="tel" maxlength="20" value="${v('tel')}" autocomplete="tel"></div>
+            <div style="grid-column:1/-1">${lab('Si eres menor de 18 años: nombre de tu madre, padre o tutor')}<input class="field in-in" data-k="tutor" maxlength="120" value="${v('tutor')}"></div>
+        </div>
+        <div class="mb-1 font-bold text-sm text-gray-700">¿En qué categorías quieres jugar?</div>
+        <div class="mb-4 p-3 border rounded">${bloquePruebas}</div>
+        <label class="flex items-start gap-2 text-sm mb-3"><input type="checkbox" id="in_aut" class="mt-1" ${d.aut ? 'checked' : ''}> <span>Acepto que mis datos se usen para organizar el torneo y contactarme (si soy menor, lo acepta mi madre, padre o tutor).</span></label>
+        <input id="in_web" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px;opacity:0" aria-hidden="true">
+        <div id="in_msg" class="text-sm text-red-700 mb-2">${esc(ins.msg)}</div>
+        <div class="flex justify-end"><button id="in_enviar" class="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded font-bold">Enviar inscripción</button></div>`;
+}
+function htmlParejaIns(c, lab) {
+    let p = ins.par[c] || (ins.par[c] = { par: '', pr: '', pn: '', sp: false });
+    return `<div class="ml-5 my-2 p-2 rounded bg-blue-50 border border-blue-200 text-sm"><div class="font-bold text-blue-900 mb-1">Tu pareja de dobles</div>
+        <label class="flex items-center gap-2 text-xs mb-1"><input type="checkbox" class="in-sp" data-c="${c}" ${p.sp ? 'checked' : ''}> Aún no tengo pareja (la organización me ayuda a encontrarla)</label>
+        ${p.sp ? '' : `<div class="grid gap-2" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+            <div style="grid-column:1/-1">${lab('Nombre y apellidos de tu pareja *')}<input class="field in-par" data-c="${c}" data-f="par" maxlength="120" value="${esc(p.par)}"></div>
+            <div>${lab('Su número de registro')}<input class="field in-par" data-c="${c}" data-f="pr" inputmode="numeric" maxlength="8" value="${esc(p.pr)}"></div>
+            <div>${lab('Su fecha de nacimiento')}<input type="date" class="field in-par" data-c="${c}" data-f="pn" value="${esc(p.pn)}"></div></div>
+            <div class="text-xs text-blue-800 mt-1">Tu pareja también debe inscribirse (o el organizador la inscribe) nombrándote a ti.</div>`}</div>`;
+}
+async function enviarInsc() {
+    if (ins.enviando) return;
+    let d = ins.d, T = ins.T, err = '', e = edadDe(d.nac), ult = 0;
+    try { ult = parseInt(localStorage.getItem('insc_ultimo') || '0'); } catch (x) {}
+    let elegidas = ['S', 'D', 'M'].filter(g => ins.sel[g]);
+    if (document.getElementById('in_web').value) { ins.enviado = true; pintarInsc(); return; }
+    if (Date.now() - ult < 20000) err = 'Espera unos segundos antes de enviar otra inscripción.';
+    else if (String(d.nombre).trim().length < 3) err = 'Escribe tu nombre y apellidos.';
+    else if (e === '') err = 'Indica tu fecha de nacimiento.';
+    else if (!d.sexo) err = 'Elige tu rama.';
+    else if (String(d.tel).replace(/\D/g, '').length < 10) err = 'Escribe tu WhatsApp o celular a 10 dígitos.';
+    else if (e < 18 && !String(d.tutor).trim()) err = 'Eres menor de 18 años: escribe el nombre de tu madre, padre o tutor.';
+    else if (!elegidas.length) err = 'Elige al menos una categoría.';
+    else if (elegidas.some(g => g !== 'S' && !ins.par[ins.sel[g]].sp && String(ins.par[ins.sel[g]].par).trim().length < 3)) err = 'Escribe el nombre de tu pareja de dobles (o marca que aún no tienes pareja).';
+    else if (!d.aut) err = 'Debes aceptar el uso de tus datos.';
+    if (err) { ins.msg = err; document.getElementById('in_msg').textContent = err; return; }
+    let p = { ts: Date.now(), aut: true, nombre: String(d.nombre).trim().replace(/\s+/g, ' ').slice(0, 120), nac: d.nac, sexo: d.sexo, tel: String(d.tel).trim().slice(0, 20), p: {} };
+    let rg = String(d.reg).replace(/\D/g, '').slice(0, 8); if (rg) p.reg = rg;
+    if (String(d.tutor).trim()) p.tutor = String(d.tutor).trim().slice(0, 120);
+    elegidas.forEach(g => {
+        let c = ins.sel[g], x = { m: g };
+        if (g !== 'S') { let q = ins.par[c]; if (q.sp) x.sp = true; else { x.par = String(q.par).trim().slice(0, 120); let pr = String(q.pr).replace(/\D/g, '').slice(0, 8); if (pr) x.pr = pr; if (q.pn) x.pn = q.pn; } }
+        p.p[c] = x;
+    });
+    ins.enviando = true; let b = document.getElementById('in_enviar'); b.disabled = true; b.textContent = 'Enviando…';
+    try {
+        let r = await fetch(baseDB() + '/inscripciones/' + encodeURIComponent(ins.tid) + '.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) });
+        if (r.status === 401 || r.status === 403) throw new Error('Las inscripciones de este torneo están cerradas o no disponibles.');
+        if (!r.ok) throw new Error('No se pudo enviar (error ' + r.status + '). Inténtalo de nuevo.');
+        try { localStorage.setItem('insc_ultimo', String(Date.now())); } catch (x) {}
+        ins.enviado = true; pintarInsc();
+    } catch (x) { ins.msg = x.message || 'No se pudo enviar.'; pintarInsc(); }
+    ins.enviando = false;
+}
+
+/* ----- Resolución de perfiles y parejas (administrador) ----- */
+function listaIns(tid) { let o = perf.ins[tid] || {}; return Object.keys(o).filter(id => o[id] && typeof o[id] === 'object').map(id => ({ id, r: o[id] })).sort((a, b) => (a.r.ts || 0) - (b.r.ts || 0)); }
+function perfilDeIns(r) {
+    if (!perf.listo) return { est: 'carga' };
+    let ids = Object.keys(perf.meta);
+    if (r.pid && perf.meta[r.pid]) return { id: r.pid, est: 'ok' };
+    let nr = parseInt(r.reg);
+    if (nr) { let id = ids.find(i => (parseInt(perf.meta[i].num) || 0) === nr); if (id) return { id, est: (perf.meta[id].nac || '') === r.nac ? 'ok' : 'nac' }; }
+    let k = normN(r.nombre), id = ids.find(i => normN(perf.meta[i].nombre) === k && (perf.meta[i].nac || '') === (r.nac || ''));
+    return id ? { id, est: 'ok' } : { est: 'sin' };
+}
+function perfilPareja(pp) {
+    if (!perf.listo || !pp) return '';
+    let ids = Object.keys(perf.meta), nr = parseInt(pp.pr);
+    if (nr) { let id = ids.find(i => (parseInt(perf.meta[i].num) || 0) === nr); if (id && (!pp.pn || perf.meta[id].nac === pp.pn)) return id; }
+    let k = normN(pp.par); if (!k) return '';
+    let l = ids.filter(i => normN(perf.meta[i].nombre) === k && (!pp.pn || perf.meta[i].nac === pp.pn));
+    return l.length === 1 ? l[0] : '';
+}
+function gestDe(tid, id, c) { let g = ((perf.gest[tid] || {})[id] || {})[c]; return g && typeof g === 'object' ? g : {}; }
+function filasCat(tid, c) {
+    let rows = listaIns(tid).filter(x => x.r.p && x.r.p[c]).map(x => { let pf = perfilDeIns(x.r); return { id: x.id, r: x.r, c, pf, g: gestDe(tid, x.id, c), nom: pf.id ? perf.meta[pf.id].nombre : x.r.nombre }; });
+    rows.forEach(f => { f.par = parejaFila(rows, f); });
+    return rows;
+}
+function parejaFila(rows, f) {
+    let pp = f.r.p[f.c] || {};
+    if (pp.m === 'S') return null;
+    let other = f.g.pj ? rows.find(x => x.id === f.g.pj) : null, pid = '';
+    if (!other && !pp.sp && (pp.par || pp.pr)) {
+        pid = perfilPareja(pp);
+        other = rows.find(x => x.id !== f.id && ((pid && x.pf.id === pid) || normN(x.r.nombre) === normN(pp.par || '')));
+    }
+    if (!other && !pid && !(pp.par)) return null;
+    let nom = other ? other.nom : (pid && perf.meta[pid] ? perf.meta[pid].nombre : (pp.par || ''));
+    let mutua = false;
+    if (other) {
+        let op = other.r.p[f.c] || {};
+        mutua = other.g.pj === f.id || f.g.pj === other.id || (op.pr && f.r.reg && parseInt(op.pr) === parseInt(f.r.reg)) || (f.pf.id && perfilPareja(op) === f.pf.id) || normN(op.par || '') === normN(f.r.nombre);
+    }
+    return { nom, rid: other ? other.id : '', row: other, mutua: !!mutua, pid: (other && other.pf.id) || pid || '' };
+}
+function nPend(tid) { return listaIns(tid).reduce((n, x) => n + Object.keys(x.r.p || {}).filter(c => (gestDe(tid, x.id, c).e || 'S') === 'S').length, 0); }
+function estadoPago(m, ab) { m = parseFloat(m) || 0; ab = parseFloat(ab) || 0; if (m <= 0) return ['Exento', 'bg-gray-100 text-gray-600']; if (ab >= m) return ['Pagado', 'bg-green-100 text-green-800']; if (ab > 0) return ['Parcial', 'bg-amber-100 text-amber-900']; return ['Pendiente', 'bg-red-100 text-red-700']; }
+function gestSet(tid, id, c, obj) {
+    let up = {}; Object.keys(obj).forEach(k => { up['gest/' + tid + '/' + id + '/' + c + '/' + k] = obj[k] === '' ? null : obj[k]; });
+    return nube.api.update(nube.api.ref(nube.rtdb), up).catch(x => alert('No se pudo guardar: ' + x.message));
+}
+function insCambio() {
+    if (tabActiva() !== 'Torneos' || !puedeEditar()) return;
+    let ae = document.activeElement;
+    if (ae && document.getElementById('tab_Torneos').contains(ae) && /INPUT|TEXTAREA|SELECT/.test(ae.tagName)) return;
+    renderTorneos();
+}
+
+/* ----- Panel del administrador ----- */
+function htmlInscripciones(tid) {
+    const T = db.torneos[tid];
+    if (!nube.activa) return `<div id="panel_ins" class="bg-white p-4 rounded-lg shadow-md mb-4 border-l-4 border-blue-600"><p class="text-sm">Las inscripciones en línea solo funcionan en la versión en la nube.</p></div>`;
+    if (!perf.listo) return `<div id="panel_ins" class="bg-white p-4 rounded-lg shadow-md mb-4 border-l-4 border-blue-600"><p class="text-sm text-gray-600">Cargando perfiles…${perf.error ? ' ' + esc(perf.error) : ''}</p></div>`;
+    let cuota = cuotaDe(T), cats = categorias.filter(c => T.cats && T.cats[c] && T.cats[c].on), total = { esp: 0, cob: 0 };
+    let h = '', cupo = parseInt(T.cupo) || 0;
+    let todas = listaIns(tid), nIns = todas.length;
+    cats.forEach(c => {
+        let k = T.cats[c], rows = filasCat(tid, c), M = modPrueba(k);
+        if (!rows.length) return;
+        let conf = rows.filter(f => f.g.e === 'C').length, usados = M === 'S' ? conf : Math.ceil(conf / 2);
+        const opt = (v, t, sel) => `<option value="${v}" ${sel === v ? 'selected' : ''}>${t}</option>`;
+        h += `<div class="mt-4"><div class="font-bold text-gray-800">${esc(catNomK(k, c))} <span class="text-xs font-normal text-gray-500">· ${PRUEBAS[M]} · ${M === 'S' ? 'confirmados' : 'parejas confirmadas'}: ${usados}${cupo ? ' de ' + cupo : ''}</span></div>
+            <div class="overflow-x-auto"><table class="w-full text-xs border-collapse mt-1"><thead><tr class="bg-gray-100 text-gray-600 text-left"><th class="p-1 border">Jugador</th><th class="p-1 border">Pareja</th><th class="p-1 border">Estado</th><th class="p-1 border">Cuota $</th><th class="p-1 border">Pagado $</th><th class="p-1 border">Método</th><th class="p-1 border">Pago</th><th class="p-1 border"></th></tr></thead><tbody>
+            ${rows.map(f => {
+                let m = f.g.m != null ? f.g.m : cuota, ab = f.g.ab || 0, ep = estadoPago(m, ab), e = f.g.e || 'S', pf = f.pf;
+                if (e === 'C') { total.esp += parseFloat(m) || 0; total.cob += parseFloat(ab) || 0; }
+                let chip = pf.est === 'ok' ? `<span class="text-green-700" title="Perfil encontrado">✔ reg. ${numTxt(parseInt(perf.meta[pf.id].num) || 0)}</span>` : pf.est === 'nac' ? `<span class="text-amber-700" title="El número existe pero la fecha de nacimiento no coincide">⚠ fecha no coincide</span>` : `<span class="text-red-700">Sin perfil</span> <button class="ins-perfil underline text-blue-700" data-t="${tid}" data-id="${f.id}">crear perfil</button>`;
+                let par = '—';
+                if (M !== 'S') {
+                    let p = f.par, libres = rows.filter(x => x.id !== f.id && !(x.par && x.par.mutua));
+                    par = p ? `${esc(p.nom)} ${p.mutua ? '<span class="text-green-700" title="Ambos se nombraron">✔ confirmada</span>' : '<span class="text-amber-700">⏳ sin confirmar</span>'}` : '<span class="text-red-700">sin pareja</span>';
+                    if (!p || !p.mutua) par += `<div><select class="ins-pj border rounded p-0.5" data-t="${tid}" data-id="${f.id}" data-c="${c}"><option value="">Emparejar con…</option>${libres.map(x => `<option value="${x.id}">${esc(x.nom)}</option>`).join('')}</select>${p && p.pid && perf.meta[p.pid] && (perf.meta[p.pid].tel) ? ` <button class="ins-wapar underline text-green-700" data-t="${tid}" data-id="${f.id}" data-c="${c}">avisar a su pareja</button>` : ''}</div>`;
+                }
+                return `<tr class="border-b align-top"><td class="p-1 border"><div class="font-bold">${esc(f.nom)}</div><div>${chip}</div><div class="text-gray-500">📱 ${esc(f.r.tel || '')}${f.r.tutor ? ' · tutor: ' + esc(f.r.tutor) : ''}${edadDe(f.r.nac) !== '' && edadDe(f.r.nac) < 18 ? ' <b class="text-amber-700">menor</b>' : ''}</div></td>
+                    <td class="p-1 border">${par}</td>
+                    <td class="p-1 border"><select class="ins-e border rounded p-0.5" data-t="${tid}" data-id="${f.id}" data-c="${c}">${Object.keys(ESTADOS_INS).map(v => opt(v, ESTADOS_INS[v], e)).join('')}</select></td>
+                    <td class="p-1 border"><input type="number" min="0" class="ins-m border rounded p-0.5 w-20" data-t="${tid}" data-id="${f.id}" data-c="${c}" value="${m}"></td>
+                    <td class="p-1 border"><input type="number" min="0" class="ins-ab border rounded p-0.5 w-20" data-t="${tid}" data-id="${f.id}" data-c="${c}" value="${ab || ''}"><button class="ins-pag ml-1 underline text-green-700" data-t="${tid}" data-id="${f.id}" data-c="${c}" title="Marcar pagado completo">todo</button></td>
+                    <td class="p-1 border"><select class="ins-mt border rounded p-0.5" data-t="${tid}" data-id="${f.id}" data-c="${c}"><option value="">—</option>${['Efectivo', 'Transferencia', 'Tarjeta', 'Otro'].map(v => opt(v, v, f.g.mt)).join('')}</select></td>
+                    <td class="p-1 border"><span class="rounded px-1 font-bold ${ep[1]}">${ep[0]}</span>${f.g.fp ? `<div class="text-gray-500">${esc(f.g.fp)}</div>` : ''}</td>
+                    <td class="p-1 border whitespace-nowrap"><button class="ins-wa underline text-green-700" data-t="${tid}" data-id="${f.id}" data-c="${c}">WhatsApp</button> <button class="ins-del text-red-700" data-t="${tid}" data-id="${f.id}" data-c="${c}" title="Quitar esta categoría de la inscripción">✕</button></td></tr>`;
+            }).join('')}</tbody></table></div></div>`;
+    });
+    let nombresDL = Object.keys(perf.meta).map(i => `<option value="${esc(perf.meta[i].nombre)} · ${numTxt(parseInt(perf.meta[i].num) || 0)}">`).join('');
+    return `<div id="panel_ins" class="bg-white p-4 rounded-lg shadow-md mb-4 border-l-4 border-blue-600">
+        <div class="flex flex-wrap justify-between items-center gap-2 mb-2"><h2 class="text-xl font-bold text-blue-800">📥 Inscripciones · ${esc(T.nombre || '')}</h2>
+            <div class="flex flex-wrap gap-2"><button class="tor-btn px-3 py-1 rounded text-xs font-bold ${T.estado === 'Inscripciones abiertas' ? 'bg-red-100 text-red-800 border border-red-300' : 'bg-green-600 text-white'}" data-acc="abririns" data-id="${tid}">${T.estado === 'Inscripciones abiertas' ? 'Cerrar inscripciones' : 'Abrir inscripciones'}</button>
+            <button class="tor-btn px-3 py-1 rounded text-xs font-bold bg-gray-100" data-acc="qrins" data-id="${tid}">📲 QR / cartel</button>
+            <button class="tor-btn px-3 py-1 rounded text-xs font-bold bg-gray-200" data-acc="cerrarins">Cerrar panel</button></div></div>
+        <div class="text-xs text-gray-600 mb-2">Estado: <b>${esc(T.estado || '')}</b>${cierreVencido(T) ? ' · <b class="text-red-700">la fecha de cierre ya pasó (el formulario público ya no recibe inscripciones)</b>' : ''} · Cuota: <b>${esc(cuotaTxt(T) || 'sin definir (captúrala en Editar → Cooperación)')}</b>${/pareja/i.test(T.coopNota || '') ? ' (por pareja: se divide entre los dos jugadores)' : ''} · ${nIns} solicitud(es)</div>
+        <div class="flex flex-wrap gap-3 items-center p-2 rounded bg-blue-50 text-sm mb-2"><span>Confirmados: cuota <b>${pesos(total.esp)}</b> · cobrado <b class="text-green-700">${pesos(total.cob)}</b> · por cobrar <b class="text-red-700">${pesos(Math.max(0, total.esp - total.cob))}</b></span>
+            <button class="tor-btn ml-auto px-3 py-1 rounded text-xs font-bold bg-green-600 text-white" data-acc="pasar" data-id="${tid}" title="Pone a los confirmados en las categorías del torneo en operación">Pasar confirmados a las categorías</button></div>
+        <div class="flex flex-wrap gap-2 items-end text-xs p-2 border rounded mb-2"><div class="font-bold w-full text-gray-700">＋ Inscribir a un jugador yo mismo (sin QR)</div>
+            <input id="im_perfil" list="im_dl" class="field text-sm" style="max-width:260px" placeholder="Nombre del jugador con perfil"><datalist id="im_dl">${nombresDL}</datalist>
+            <select id="im_cat" class="border rounded p-1 text-sm">${cats.map(c => `<option value="${c}">${esc(catNomK(T.cats[c], c))} · ${PRUEBAS[modPrueba(T.cats[c])]}</option>`).join('')}</select>
+            <input id="im_par" class="field text-sm" style="max-width:220px" placeholder="Pareja (solo dobles)">
+            <button class="tor-btn px-3 py-1 rounded text-xs font-bold bg-blue-600 text-white" data-acc="imanual" data-id="${tid}">Inscribir</button></div>
+        ${h || '<p class="text-sm text-gray-500 py-4 text-center">Todavía no hay solicitudes de inscripción.</p>'}
+        <p class="text-xs text-gray-500 mt-3">La regla por jugador es una prueba de cada modalidad (singles, dobles y dobles mixtos). El formulario público lo aplica; aquí tú confirmas. Nada cuenta como inscrito hasta que lo marcas "Confirmada".</p></div>`;
+}
+async function insManual(tid) {
+    let T = db.torneos[tid], txt = (document.getElementById('im_perfil').value || '').split(' · ')[0].trim(), c = document.getElementById('im_cat').value, par = (document.getElementById('im_par').value || '').trim();
+    if (!txt || !c) { alert('Escribe el nombre de un jugador que ya tenga perfil y elige la categoría.'); return; }
+    let id = Object.keys(perf.meta).find(i => normN(perf.meta[i].nombre) === normN(txt));
+    if (!id) { alert('No encontré un perfil con ese nombre. Primero dalo de alta en Perfiles.'); return; }
+    let m = perf.meta[id], M = modPrueba(T.cats[c]);
+    if (M !== 'S' && !par) { alert('Es una categoría de dobles: escribe el nombre de la pareja.'); return; }
+    let x = { m: M }; if (M !== 'S') x.par = par.slice(0, 120);
+    let existente = listaIns(tid).find(z => z.r.pid === id);
+    let up = {};
+    if (existente) up['inscripciones/' + tid + '/' + existente.id + '/p/' + c] = x;
+    else up['inscripciones/' + tid + '/i' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36)] = { ts: Date.now(), aut: true, adm: true, pid: id, nombre: m.nombre, nac: m.nac || '2000-01-01', sexo: m.sexo || '', tel: m.tel || '-', p: { [c]: x } };
+    try { await nube.api.update(nube.api.ref(nube.rtdb), up); document.getElementById('im_perfil').value = ''; document.getElementById('im_par').value = ''; } catch (e) { alert('No se pudo inscribir: ' + e.message); }
+}
+function pasarConfirmados(tid) {
+    if (tid !== db.activo || hist) { alert('Para pasar a los confirmados a las categorías, primero pon este torneo "en operación" (botón en el calendario).'); return; }
+    let T = db.torneos[tid], n = 0, omit = [];
+    categorias.forEach(c => {
+        if (!(T.cats && T.cats[c] && T.cats[c].on)) return;
+        let D = catModo(c) === 'D', rows = filasCat(tid, c), hechos = new Set();
+        let ya = new Set((db.jugadores[c] || []).map(x => normN(x)).filter(x => x));
+        rows.filter(f => f.g.e === 'C').forEach(f => {
+            let nombre, ids = f.pf.id ? [f.pf.id] : [];
+            if (!D) nombre = f.nom;
+            else {
+                let p = f.par;
+                if (!p) { omit.push(f.nom + ': sin pareja'); return; }
+                if (p.row && p.row.g.e !== 'C') { omit.push(f.nom + ' / ' + p.nom + ': la pareja aún no está confirmada'); return; }
+                let key = [f.id, p.rid || normN(p.nom)].sort().join('|'); if (hechos.has(key)) return; hechos.add(key);
+                nombre = f.nom + ' / ' + p.nom; if (p.pid) ids.push(p.pid);
+            }
+            if (ya.has(normN(nombre))) return;
+            let slot = db.jugadores[c].findIndex(x => !x);
+            if (slot < 0) { omit.push(nombre + ': no hay lugar en la categoría'); return; }
+            db.jugadores[c][slot] = nombre; ya.add(normN(nombre));
+            if (ids.length) { db.vinc[c][slot] = ids.join(','); }
+            n++;
+        });
+    });
+    saveDB(); pintarTabs();
+    alert(`Se pasaron ${n} inscripción(es) a las categorías.` + (omit.length ? `\n\nNo se pasaron:\n- ${omit.join('\n- ')}` : ''));
+}
+function textoInsWA(tid, f) {
+    let T = db.torneos[tid], k = T.cats[f.c], e = f.g.e || 'S', cat = catNomK(k, f.c) + ' (' + PRUEBAS[modPrueba(k)].toLowerCase() + ')';
+    let m = f.g.m != null ? f.g.m : cuotaDe(T), falta = Math.max(0, (parseFloat(m) || 0) - (parseFloat(f.g.ab) || 0));
+    let t = `Hola ${String(f.nom).split(' ')[0]}, `;
+    if (e === 'C') t += `tu inscripción a ${T.nombre} en ${cat} está CONFIRMADA.` + (falta > 0 ? ` Queda pendiente tu cuota de ${pesos(falta)}.` : ' Tu cuota está cubierta.');
+    else if (e === 'L') t += `quedaste en LISTA DE ESPERA en ${cat} del ${T.nombre}. Te avisamos si se libera un lugar.`;
+    else if (e === 'R') t += `no fue posible aceptar tu inscripción en ${cat} del ${T.nombre}. Escríbenos si tienes dudas.`;
+    else t += `recibimos tu solicitud para ${cat} del ${T.nombre}. Te confirmaremos pronto.`;
+    return t;
+}
+document.addEventListener('change', async e => {
+    let t = e.target; if (!t.classList || !t.dataset || !t.dataset.t) return;
+    let tid = t.dataset.t, id = t.dataset.id, c = t.dataset.c;
+    if (t.classList.contains('ins-e')) {
+        let v = t.value, T = db.torneos[tid], cupo = parseInt(T.cupo) || 0;
+        if (v === 'C' && cupo) {
+            let rows = filasCat(tid, c), conf = rows.filter(f => f.g.e === 'C' && f.id !== id).length, M = modPrueba(T.cats[c]), usados = M === 'S' ? conf : Math.ceil((conf + 1) / 2);
+            if (usados > cupo && confirm(`La categoría ya llegó al cupo (${cupo}). ¿Dejar a este jugador en lista de espera?`)) v = 'L';
+        }
+        await gestSet(tid, id, c, { e: v }); return;
+    }
+    if (t.classList.contains('ins-m')) { await gestSet(tid, id, c, { m: t.value === '' ? null : parseFloat(t.value) }); return; }
+    if (t.classList.contains('ins-ab')) { let v = t.value === '' ? null : parseFloat(t.value); await gestSet(tid, id, c, { ab: v, fp: v ? new Date().toISOString().slice(0, 10) : null }); return; }
+    if (t.classList.contains('ins-mt')) { await gestSet(tid, id, c, { mt: t.value }); return; }
+    if (t.classList.contains('ins-pj') && t.value) { await gestSet(tid, id, c, { pj: t.value }); await gestSet(tid, t.value, c, { pj: id }); return; }
+});
+document.addEventListener('click', async e => {
+    let t = e.target; if (!t.classList || !t.dataset || !t.dataset.t) return;
+    let tid = t.dataset.t, id = t.dataset.id, c = t.dataset.c;
+    if (t.classList.contains('ins-pag')) { let T = db.torneos[tid], g = gestDe(tid, id, c), m = g.m != null ? g.m : cuotaDe(T); await gestSet(tid, id, c, { ab: m || null, fp: new Date().toISOString().slice(0, 10) }); return; }
+    if (t.classList.contains('ins-del')) {
+        let r = (perf.ins[tid] || {})[id]; if (!r || !confirm(`¿Quitar esta categoría de la inscripción de "${r.nombre}"? No se puede deshacer.`)) return;
+        let up = { ['gest/' + tid + '/' + id + '/' + c]: null };
+        if (Object.keys(r.p || {}).length <= 1) up['inscripciones/' + tid + '/' + id] = null; else up['inscripciones/' + tid + '/' + id + '/p/' + c] = null;
+        try { await nube.api.update(nube.api.ref(nube.rtdb), up); } catch (x) { alert('No se pudo borrar: ' + x.message); } return;
+    }
+    if (t.classList.contains('ins-wa') || t.classList.contains('ins-wapar')) {
+        let f = filasCat(tid, c).find(x => x.id === id); if (!f) return;
+        let esPar = t.classList.contains('ins-wapar'), tel, texto;
+        if (esPar) { let p = f.par; tel = p && p.pid && perf.meta[p.pid] ? perf.meta[p.pid].tel : ''; texto = `Hola ${String(p.nom).split(' ')[0]}, ${f.nom} te propuso como pareja de dobles en ${db.torneos[tid].nombre}. Para confirmar, entra a ${urlIns(tid)} e inscríbete nombrándolo como tu pareja.`; }
+        else { tel = f.r.tel; texto = textoInsWA(tid, f); }
+        let n = telWhats(tel); if (!n) { alert('No hay un número de WhatsApp válido (10 dígitos).'); return; }
+        abrirEnlace(`https://wa.me/${n}?text=${encodeURIComponent(texto)}`, true); return;
+    }
+    if (t.classList.contains('ins-perfil')) {
+        let r = (perf.ins[tid] || {})[id]; if (!r) return;
+        abrirPerfil(null); Object.assign(perf.ed.d, { nombre: r.nombre, nac: r.nac, sexo: r.sexo || '', tel: r.tel !== '-' ? r.tel : '', tutor: r.tutor || '' });
+        document.getElementById('perf_form').innerHTML = formPerfil(); pintarFotosPerfil(); return;
+    }
+});
+/* eventos del formulario público de inscripción */
+document.addEventListener('click', e => {
+    let t = e.target, c = t.closest ? t.closest('button') : null;
+    if (c && c.classList.contains('in-cerrar')) { cerrarInsc(); return; }
+    if (c && c.classList.contains('in-sel')) { let x = ins.lista.find(y => y.id === c.dataset.t); if (x) { ins.T = x; ins.tid = x.id; ins.cerrado = false; ins.sel = { S: '', D: '', M: '' }; ins.par = {}; pintarInsc(); window.scrollTo(0, 0); } return; }
+    if (t.id === 'in_enviar') enviarInsc();
+});
+document.addEventListener('input', e => {
+    let t = e.target; if (!t.classList || !ins.d) return;
+    if (t.classList.contains('in-in') && t.tagName !== 'SELECT') ins.d[t.dataset.k] = t.value;
+    else if (t.classList.contains('in-par')) ins.par[t.dataset.c][t.dataset.f] = t.value;
+});
+document.addEventListener('change', e => {
+    let t = e.target; if (!t.classList || !ins.d) return;
+    if (t.classList.contains('in-in')) { ins.d[t.dataset.k] = t.value; if (t.dataset.k === 'sexo') { let T = ins.T; ['S', 'D', 'M'].forEach(g => { let c = ins.sel[g]; if (c && T.cats[c] && ((T.cats[c].rama === 'V' && t.value === 'F') || (T.cats[c].rama === 'F' && t.value === 'V'))) ins.sel[g] = ''; }); pintarInsc(); } }
+    else if (t.id === 'in_aut') ins.d.aut = t.checked;
+    else if (t.classList.contains('in-rad')) { ins.sel[t.dataset.g] = t.value; if (t.value && !ins.par[t.value]) ins.par[t.value] = { par: '', pr: '', pn: '', sp: false }; pintarInsc(); }
+    else if (t.classList.contains('in-sp')) { ins.par[t.dataset.c].sp = t.checked; pintarInsc(); }
+    else if (t.classList.contains('in-par')) ins.par[t.dataset.c][t.dataset.f] = t.value;
 });
 
 /* ---------- Programación de horarios y asignación de canchas ---------- */
@@ -2966,6 +3348,12 @@ document.addEventListener('click', e => {
         if (acc === 'nuevo') { torEdit = nuevoTorneo(); saveDB(); renderTorneos(); window.scrollTo(0, 0); }
         else if (acc === 'editar') { torEdit = id; renderTorneos(); window.scrollTo(0, 0); }
         else if (acc === 'cerrar') { torEdit = ''; renderTorneos(); }
+        else if (acc === 'ins') { torIns = id; renderTorneos(); setTimeout(() => { let p = document.getElementById('panel_ins'); if (p) p.scrollIntoView({ behavior: 'smooth' }); }, 30); }
+        else if (acc === 'cerrarins') { torIns = ''; renderTorneos(); }
+        else if (acc === 'qrins') { qrCtx = null; mostrarQR(ctxTorneo(db.torneos[id], id)); }
+        else if (acc === 'pasar') pasarConfirmados(id);
+        else if (acc === 'abririns') { let T = db.torneos[id]; T.estado = T.estado === 'Inscripciones abiertas' ? 'Confirmado' : 'Inscripciones abiertas'; saveDB(); renderTorneos(); }
+        else if (acc === 'imanual') insManual(id);
         else if (acc === 'activar') activarTorneo(id);
         else if (acc === 'ver') verHistorico(id);
         else if (acc === 'plantilla') agregarCategoriasPlantilla(id);
