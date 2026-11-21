@@ -3088,7 +3088,7 @@ function buildCategoriasDOM(cat) {
                             <th class="p-2 border">% ${a}G</th>
                             ${info.setsG ? '<th class="p-2 border bg-blue-50" title="Juegos Ganados">JG</th><th class="p-2 border bg-blue-50" title="Juegos Perdidos">JP</th><th class="p-2 border bg-blue-100">% JG</th>' : ''}
                         </tr></thead>
-                        <tbody id="std_${cat}_${gName}"></tbody>
+                        <tbody id="std_${cat}_${GROUP_NAMES[gIdx]}"></tbody>
                     </table>
                     ${numGroups === 1 ? `<div class="text-center mt-4 text-xl font-bold text-green-700">🏆 <span id="win_f_${cat}">-</span></div>` : ''}
                 </div>
