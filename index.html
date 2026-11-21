@@ -8,6 +8,7 @@
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; }
         .tab-content { display: none; }
+        .nombres-input.vinculado { border-color: #16a34a; background: #f0fdf4; }
         .tab-content.active { display: block; }
         .tab-btn.active { border-bottom: 4px solid #16a34a; color: #166534; font-weight: bold; }
         /* Campos anchos (nombres y simulación) */
@@ -80,6 +81,12 @@
 
         <div class="bg-white p-6 rounded-lg shadow-md">
             <h2 class="text-xl font-bold text-green-700 mb-2">Registro de Jugadores (Máx 48)</h2>
+            <div class="solo-admin flex flex-wrap items-center gap-2 mb-3">
+                <button id="btn_vincular" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm font-bold">🔗 Vincular con perfiles</button>
+                <span id="vinc_msg" class="text-sm text-gray-600"></span>
+                <span class="text-xs text-gray-500">Al escribir un nombre puedes elegirlo de la lista de perfiles. Los nombres con perfil se marcan en verde y su resultado cuenta para el historial y el ranking.</span>
+            </div>
+            <datalist id="dl_perfiles"></datalist>
             <div class="grid gap-4" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))" id="inscripciones-grid"></div>
             <button onclick="limpiarDatos()" class="mt-6 w-full bg-red-600 text-white py-2 rounded hover:bg-red-700 transition font-bold shadow">Borrar Todos los Datos del Torneo</button>
         </div>
@@ -148,8 +155,8 @@ const firebaseConfig = {
 };
 const FB_VER = '12.7.0';
 
-// Hasta 10 categorías. Las 5 primeras son las clásicas; cada torneo puede activar y nombrar las que use.
-const categorias = ['AA', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+// Hasta 15 categorías (por ejemplo 5 niveles x Varonil, Femenil y Mixta). Las 5 primeras son las clásicas; cada torneo puede activar y nombrar las que use.
+const categorias = ['AA', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N'];
 const CATS_BASE = 5;
 const MAX_PLAYERS = 48;
 const GROUP_NAMES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
@@ -166,7 +173,7 @@ function readJSON(key) {
 
 /* ---------- Base de datos ---------- */
 function initDB() {
-    let base = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, datos: {}, siembra: {}, horario: {},
+    let base = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, datos: {}, siembra: {}, horario: {}, vinc: {},
         prog: { canchas: 'Cancha 1\nCancha 2', f1: '', f2: '', ini: '08:00', fin: '20:00', dur: 90, desc: 0, cats: {}, dias: {} }, ajustes: { torneo: '', lada: '52' },
         torneos: {},   // calendario: id -> datos del torneo
         activo: '',    // id del torneo en operación (al que pertenecen inscripciones y marcadores)
@@ -177,6 +184,7 @@ function initDB() {
         base.config[c] = 'auto';
         base.manual[c] = {};     // 'M1'.. -> slot del jugador elegido como mejor 3ro
         base.layout[c] = null;   // nº de grupos con el que se capturaron los marcadores
+        base.vinc[c] = {};       // posición en la lista -> id del perfil (o 'id1,id2' en dobles)
         base.horario[c] = {};    // clave del partido -> { d: 'AAAA-MM-DD', h: 'HH:MM', c: 'cancha' }
         base.prog.cats[c] = true;
         base.siembra[c] = null;  // orden de siembra ajustado a mano (lista de slots) o null = automático
@@ -194,8 +202,34 @@ function catsActivas() {
     if (T && T.cats) { let l = categorias.filter(c => T.cats[c] && T.cats[c].on); if (l.length) return l; }
     return categorias.slice(0, CATS_BASE);
 }
-function catNombre(c) { let T = torneoAct(), n = T && T.cats && T.cats[c] && T.cats[c].nombre; return n ? String(n) : c; }
-function catTitulo(c) { let n = catNombre(c); return n === c ? 'Cat ' + c : n; }
+const RAMAS = { V: 'Varonil', F: 'Femenil', M: 'Mixta' };
+const NIVELES = ['AA', 'A', 'B', 'C', 'D', 'E', 'F'];
+const ROMANOS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'];
+function catCfg(c) { let T = torneoAct(); return (T && T.cats && T.cats[c]) || null; }
+/* Nombre automático: nivel + rama, p. ej. "A Varonil" */
+function catAuto(c) { let k = catCfg(c); return k && k.nivel ? k.nivel + (k.rama && RAMAS[k.rama] ? ' ' + RAMAS[k.rama] : '') : ''; }
+function catNombre(c) {
+    let k = catCfg(c);
+    if (!k) return c;
+    if (k.nombre && String(k.nombre) !== c) return String(k.nombre);
+    return catAuto(c) || (k.nombre ? String(k.nombre) : c);
+}
+/* Con "Categoría" delante cuando el nombre es solo el código o el nombre automático (nivel + rama) */
+function catTitulo(c) { let n = catNombre(c); return (n === c || n === catAuto(c)) ? 'Cat ' + n : n; }
+function catEtiqueta(c) { let n = catNombre(c); return (n === c || n === catAuto(c)) ? 'Categoría ' + n : n; }
+/* Clave estable de categoría para el ranking: nivel + rama (no depende de la casilla que usó cada torneo) */
+function catClave(c) { let k = catCfg(c); return k && k.nivel ? k.nivel + (k.rama ? '-' + k.rama : '') : c; }
+/* Nombre con el que se muestra un grupo: letras, números, romanos o nombres propios de la categoría */
+function gNombre(cat, gi) {
+    let T = torneoAct();
+    if (T) {
+        let l = String((T.cats && T.cats[cat] && T.cats[cat].grupos) || '').split(',').map(x => x.trim());
+        if (l[gi]) return l[gi];
+        if (T.gEstilo === 'N') return String(gi + 1);
+        if (T.gEstilo === 'R') return ROMANOS[gi] || String(gi + 1);
+    }
+    return GROUP_NAMES[gi];
+}
 function catModo(c) { let T = torneoAct(); return (T && T.cats && T.cats[c] && T.cats[c].mod === 'D') ? 'D' : 'S'; }
 
 function hasScores(cat) { return Object.values(db.scores[cat]).some(v => v); }
@@ -275,7 +309,7 @@ function loadDB() {
         ['torneos', 'archivo'].forEach(k => { if (d[k] && typeof d[k] === 'object') base[k] = d[k]; });
         if (typeof d.activo === 'string') base.activo = d.activo;
         if (d.prog) { let cats = Object.assign({}, base.prog.cats, d.prog.cats || {}); Object.assign(base.prog, d.prog); base.prog.cats = cats; }
-        ['jugadores', 'scores', 'config', 'manual', 'layout', 'datos', 'siembra', 'horario'].forEach(f => {
+        ['jugadores', 'scores', 'config', 'manual', 'layout', 'datos', 'siembra', 'horario', 'vinc'].forEach(f => {
             categorias.forEach(c => { if (d[f] && d[f][c] !== undefined && d[f][c] !== null) base[f][c] = d[f][c]; });
         });
         categorias.forEach(c => {
@@ -322,12 +356,12 @@ let db = nube.activa ? initDB() : loadDB();
 
 /* Estructura en la nube:  publico/ (nombres, marcadores, formato)  y  privado/ (datos de contacto) */
 function toRemote(d) {
-    let pub = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, siembra: {}, horario: {}, prog: d.prog, torneo: d.ajustes.torneo || '', torneos: d.torneos, activo: d.activo };
+    let pub = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, siembra: {}, horario: {}, vinc: {}, prog: d.prog, torneo: d.ajustes.torneo || '', torneos: d.torneos, activo: d.activo };
     categorias.forEach(c => {
         pub.jugadores[c] = {};
         d.jugadores[c].forEach((n, i) => { if (n) pub.jugadores[c][i] = n; });
         pub.scores[c] = d.scores[c]; pub.config[c] = d.config[c]; pub.manual[c] = d.manual[c];
-        pub.layout[c] = d.layout[c]; pub.formato[c] = d.formato[c]; pub.siembra[c] = d.siembra[c]; pub.horario[c] = d.horario[c];
+        pub.layout[c] = d.layout[c]; pub.formato[c] = d.formato[c]; pub.siembra[c] = d.siembra[c]; pub.horario[c] = d.horario[c]; pub.vinc[c] = d.vinc[c];
     });
     pub.archivo = {}; let adat = {};
     Object.keys(d.archivo || {}).forEach(id => { let a = d.archivo[id]; if (a && a.pub) { pub.archivo[id] = a.pub; if (a.datos) adat[id] = a.datos; } });
@@ -357,6 +391,8 @@ function fromRemote(pub, priv) {
         d.formato[c] = { g: f.g === 'sets' ? 'sets' : 'pro', f: f.f === 'sets' ? 'sets' : 'pro' };
         let sb = obj(pub.siembra)[c];
         if (sb && typeof sb === 'object') { let arr = Object.keys(sb).sort((a, b) => a - b).map(k => parseInt(sb[k])); if (arr.length && arr.every(x => !isNaN(x))) d.siembra[c] = arr; }
+        let vc = obj(obj(pub.vinc)[c]);
+        Object.keys(vc).forEach(k => { if (vc[k]) d.vinc[c][k] = String(vc[k]); });
         let hr = obj(obj(pub.horario)[c]);
         Object.keys(hr).forEach(k => { let v = hr[k]; if (v && typeof v === 'object') d.horario[c][k] = { d: String(v.d || ''), h: String(v.h || ''), c: String(v.c || '') }; });
         let dt = obj(obj(priv.datos)[c]);   // puede llegar como arreglo o como objeto
@@ -381,6 +417,7 @@ function fromRemote(pub, priv) {
 
 function saveDB() {
     if (hist) return;
+    if (puedeEditar()) { let r = autoVincular(); if (r.ok && r.cambio) pintarVinculos(); }
     if (!nube.activa) {
         try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); }
         catch (e) { console.error('No se pudo guardar en la memoria del navegador', e); }
@@ -438,7 +475,7 @@ function aplicarRemoto() {
 function firma(cat) {
     let info = computeCat(cat);
     return JSON.stringify([getActivos(db, cat).map(p => p.slot), db.config[cat], db.formato[cat], info.numGroups,
-        hasScores(cat) && db.layout[cat] != null && db.layout[cat] !== info.numGroups, nube.rol, db.horario[cat]]);
+        hasScores(cat) && db.layout[cat] != null && db.layout[cat] !== info.numGroups, nube.rol, db.horario[cat], catNombre(cat), [0, 1, 2, 3, 4, 5, 6, 7].map(i => gNombre(cat, i))]);
 }
 
 function refrescarUI(forzar) {
@@ -837,8 +874,8 @@ function manualKeys(G) {
     return keys.sort();
 }
 
-function srcLabel(src) {
-    if (src.t === 'g') return `${src.p + 1}º ${GROUP_NAMES[src.g]}`;
+function srcLabel(src, cat) {
+    if (src.t === 'g') return `${src.p + 1}º ${cat ? gNombre(cat, src.g) : GROUP_NAMES[src.g]}`;
     if (src.t === 'w') return `Gan ${src.m}`;
     if (src.t === 's') return `Sembrado ${src.n}`;
     return 'Mejor 3ro';
@@ -867,7 +904,7 @@ function resolveBracket(cat, info) {
         if (src.t === 's') {
             if (!seeds) return null;
             let x = seeds.orden[src.n - 1];
-            return x ? { slot: x.slot, nombre: x.nombre, prov: seeds.prov, de: `${x.pos + 1}º ${GROUP_NAMES[x.gi]}` } : BYE;
+            return x ? { slot: x.slot, nombre: x.nombre, prov: seeds.prov, de: `${x.pos + 1}º ${gNombre(cat, x.gi)}` } : BYE;
         }
         return winners[src.m] || null;
     };
@@ -899,7 +936,7 @@ function pintarSiembra(cat, info, seeds) {
         let ult = i === seeds.orden.length - 1 || !seeds.orden[i + 1];
         return `<tr class="border-b"><td class="p-1 border text-center font-bold">${i + 1}</td>
             <td class="p-1 border font-bold text-gray-700">${esc(x.nombre)}</td>
-            <td class="p-1 border text-center">${x.pos + 1}º ${GROUP_NAMES[x.gi]}</td>
+            <td class="p-1 border text-center">${x.pos + 1}º ${esc(gNombre(cat, x.gi))}</td>
             <td class="p-1 border text-center">${x.pctP.toFixed(1)}%</td>
             <td class="p-1 border text-center">${x.pct.toFixed(1)}%</td>
             <td class="p-1 border text-center whitespace-nowrap solo-admin">
@@ -978,10 +1015,11 @@ function renderInscripciones() {
     let html = '';
     catsActivas().forEach(cat => {
         html += `<div class="border rounded p-2 bg-gray-50"><h3 class="font-bold text-center bg-gray-200 text-gray-700 py-1 mb-2 rounded shadow-sm">${esc(catTitulo(cat))}</h3><div class="max-h-96 overflow-y-auto px-1">`;
-        for (let i = 0; i < MAX_PLAYERS; i++) html += `<input type="text" class="field mb-1 text-xs nombres-input" data-cat="${cat}" data-idx="${i}" value="${esc(db.jugadores[cat][i])}" placeholder="${i + 1}. ${catModo(cat) === 'D' ? 'Pareja' : 'Jugador'}">`;
+        for (let i = 0; i < MAX_PLAYERS; i++) html += `<input type="text" class="field mb-1 text-xs nombres-input" list="dl_perfiles" autocomplete="off" data-cat="${cat}" data-idx="${i}" value="${esc(db.jugadores[cat][i])}" placeholder="${i + 1}. ${catModo(cat) === 'D' ? 'Pareja' : 'Jugador'}">`;
         html += `</div></div>`;
     });
     grid.innerHTML = html;
+    pintarDatalistPerfiles(); pintarVinculos();
 }
 
 function openTab(tabName) {
@@ -1020,6 +1058,27 @@ function catsDefault() {
     categorias.forEach((c, i) => { o[c] = { on: i < CATS_BASE, nombre: i < CATS_BASE ? c : '', mod: 'S' }; });
     return o;
 }
+function catAutoDe(k) { return k && k.nivel ? k.nivel + (k.rama && RAMAS[k.rama] ? ' ' + RAMAS[k.rama] : '') : ''; }
+function estiloEjemplo(e) { return e === 'N' ? '1, 2, 3…' : (e === 'R' ? 'I, II, III…' : 'A, B, C…'); }
+/* Agrega las combinaciones nivel x rama marcadas en las casillas libres (no toca las que ya existen) */
+function agregarCategoriasPlantilla(tid) {
+    let T = db.torneos[tid];
+    if (!T) return;
+    T.cats = T.cats || catsDefault();
+    let pedidos = Array.from(document.querySelectorAll('.tpl-chk:checked:not(:disabled)')).map(x => ({ n: x.dataset.n, r: x.dataset.r }));
+    if (!pedidos.length) { alert('Marca primero las combinaciones de nivel y rama que quieras agregar.'); return; }
+    categorias.forEach(c => { let k = T.cats[c]; if (k && k.on && !k.nivel && k.nombre === c && !hayDatosSlot(tid, c)) k.on = false; });   // quita las categorías genéricas que nadie ha usado
+    let faltan = 0;
+    pedidos.forEach(p => {
+        let libre = categorias.find(c => !(T.cats[c] && T.cats[c].on) && !(T.cats[c] && (T.cats[c].nivel || T.cats[c].nombre && T.cats[c].nombre !== c) && hayDatosSlot(tid, c)));
+        if (!libre) { faltan++; return; }
+        T.cats[libre] = { on: true, nombre: '', mod: 'S', nivel: p.n, rama: p.r, grupos: '' };
+    });
+    if (faltan) alert(`No hubo casillas libres para ${faltan} categoría(s): el máximo es ${categorias.length}.`);
+    saveDB(); pintarTabs(); renderTorneos();
+}
+/* ¿La casilla de categoría ya tiene inscritos en el torneo en operación? (para no pisar datos) */
+function hayDatosSlot(tid, c) { return tid === db.activo && (db.jugadores[c] || []).some(x => x); }
 function nuevoTorneo(datos) {
     let id = 't' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
     db.torneos[id] = Object.assign({ nombre: 'Nuevo torneo', tipo: TIPOS_TORNEO[0], estado: 'Propuesto', sede: '', f1: '', f2: '', cierre: '',
@@ -1057,7 +1116,7 @@ function calendarioSugerido(anio) {
 }
 
 /* Conjunto de trabajo: lo que pertenece a un torneo concreto (inscripciones, marcadores, horarios, datos de contacto) */
-const CAMPOS_TRABAJO = ['jugadores', 'scores', 'config', 'manual', 'layout', 'formato', 'siembra', 'horario', 'datos'];
+const CAMPOS_TRABAJO = ['jugadores', 'scores', 'config', 'manual', 'layout', 'formato', 'siembra', 'horario', 'datos', 'vinc'];
 const CAMPOS_PROG = ['canchas', 'ini', 'fin', 'dur', 'desc', 'cats'];
 function copiarTrabajo(desde) {
     CAMPOS_TRABAJO.forEach(k => { db[k] = desde[k]; });
@@ -1066,7 +1125,7 @@ function copiarTrabajo(desde) {
 function vaciarTrabajo() { copiarTrabajo(initDB()); }
 function fotoTrabajo() {
     let r = toRemote(db), pub = { prog: {} };
-    ['jugadores', 'scores', 'config', 'manual', 'layout', 'formato', 'siembra', 'horario'].forEach(k => { pub[k] = r.publico[k]; });
+    ['jugadores', 'scores', 'config', 'manual', 'layout', 'formato', 'siembra', 'horario', 'vinc'].forEach(k => { pub[k] = r.publico[k]; });
     CAMPOS_PROG.forEach(k => { pub.prog[k] = db.prog[k]; });
     return JSON.parse(JSON.stringify({ pub, datos: r.privado.datos }));
 }
@@ -1205,11 +1264,27 @@ function renderTorneos() {
                     <div class="mt-2">${lab('Notas')}<textarea class="field tor-input text-sm" rows="2" data-id="${torEdit}" data-campo="notas">${v('notas')}</textarea></div>
                 </div>
                 <div><div class="text-sm font-bold text-green-800 mb-1">Categorías (hasta ${categorias.length})</div>
-                    <table class="text-xs border-collapse w-full"><thead><tr class="bg-gray-100 text-gray-600"><th class="p-1 border">Usar</th><th class="p-1 border text-left">Nombre de la categoría</th><th class="p-1 border">Modalidad</th></tr></thead><tbody>
-                    ${categorias.map(c => { let k = cats[c] || {}; return `<tr><td class="p-1 border text-center"><input type="checkbox" class="tor-cat" data-id="${torEdit}" data-cat="${c}" data-campo="on" ${k.on ? 'checked' : ''}></td>
-                        <td class="p-1 border"><input type="text" class="tor-cat border rounded p-1 w-full text-xs" data-id="${torEdit}" data-cat="${c}" data-campo="nombre" value="${esc(k.nombre || '')}" placeholder="Ej. Varonil A, Femenil, Infantil 10 años"></td>
-                        <td class="p-1 border"><select class="tor-cat border rounded p-1 text-xs" data-id="${torEdit}" data-cat="${c}" data-campo="mod"><option value="S" ${k.mod !== 'D' ? 'selected' : ''}>Singles</option><option value="D" ${k.mod === 'D' ? 'selected' : ''}>Dobles</option></select></td></tr>`; }).join('')}
-                    </tbody></table></div>
+                    <div class="bg-green-50 border border-green-200 rounded p-2 mb-2">
+                        <div class="text-xs font-bold text-green-800 mb-1">Agregar categorías por nivel y rama</div>
+                        <table class="text-xs border-collapse"><thead><tr><th class="p-1"></th>${Object.keys(RAMAS).map(r => `<th class="p-1 px-3">${RAMAS[r]}</th>`).join('')}</tr></thead><tbody>
+                        ${NIVELES.slice(0, 5).map(n => `<tr><td class="p-1 font-bold">${n}</td>${Object.keys(RAMAS).map(r => { let ya = categorias.some(c => cats[c] && cats[c].on && cats[c].nivel === n && cats[c].rama === r); return `<td class="p-1 text-center"><input type="checkbox" class="tpl-chk" data-n="${n}" data-r="${r}" ${ya ? 'checked disabled' : ''}></td>`; }).join('')}</tr>`).join('')}
+                        </tbody></table>
+                        <button class="tor-btn mt-1 px-2 py-1 rounded text-xs font-bold bg-green-600 text-white hover:bg-green-700" data-acc="plantilla" data-id="${torEdit}">Agregar las marcadas</button>
+                        <span class="text-xs text-gray-500">Las que ya existen no se tocan. Para otros niveles (E, F…) o nombres especiales usa la tabla de abajo.</span>
+                    </div>
+                    <table class="text-xs border-collapse w-full"><thead><tr class="bg-gray-100 text-gray-600"><th class="p-1 border">Usar</th><th class="p-1 border">Nivel</th><th class="p-1 border">Rama</th><th class="p-1 border text-left">Nombre (opcional)</th><th class="p-1 border">Modalidad</th><th class="p-1 border text-left">Nombres de grupos</th></tr></thead><tbody>
+                    ${categorias.map(c => { let k = cats[c] || {}; const sel = (campo, opts, val) => `<select class="tor-cat border rounded p-1 text-xs" data-id="${torEdit}" data-cat="${c}" data-campo="${campo}">${opts}</select>`;
+                        return `<tr><td class="p-1 border text-center"><input type="checkbox" class="tor-cat" data-id="${torEdit}" data-cat="${c}" data-campo="on" ${k.on ? 'checked' : ''}></td>
+                        <td class="p-1 border">${sel('nivel', '<option value="">—</option>' + NIVELES.map(n => `<option ${k.nivel === n ? 'selected' : ''}>${n}</option>`).join(''))}</td>
+                        <td class="p-1 border">${sel('rama', '<option value="">—</option>' + Object.keys(RAMAS).map(r => `<option value="${r}" ${k.rama === r ? 'selected' : ''}>${RAMAS[r]}</option>`).join(''))}</td>
+                        <td class="p-1 border"><input type="text" class="tor-cat border rounded p-1 w-full text-xs" style="min-width:110px" data-id="${torEdit}" data-cat="${c}" data-campo="nombre" value="${esc(k.nombre && k.nombre !== c ? k.nombre : '')}" placeholder="${esc(catAutoDe(k) || 'Ej. Infantil 10 años')}"></td>
+                        <td class="p-1 border">${sel('mod', `<option value="S" ${k.mod !== 'D' ? 'selected' : ''}>Singles</option><option value="D" ${k.mod === 'D' ? 'selected' : ''}>Dobles</option>`)}</td>
+                        <td class="p-1 border"><input type="text" class="tor-cat border rounded p-1 w-full text-xs" style="min-width:110px" data-id="${torEdit}" data-cat="${c}" data-campo="grupos" value="${esc(k.grupos || '')}" placeholder="Auto (${esc(estiloEjemplo(T.gEstilo))})"></td></tr>`; }).join('')}
+                    </tbody></table>
+                    <div class="mt-2 flex items-center gap-2 text-xs"><label class="font-bold text-gray-700">Nombre de los grupos:</label>
+                        <select class="tor-input border rounded p-1" data-id="${torEdit}" data-campo="gEstilo"><option value="L" ${(T.gEstilo || 'L') === 'L' ? 'selected' : ''}>Letras (A, B, C…)</option><option value="N" ${T.gEstilo === 'N' ? 'selected' : ''}>Números (1, 2, 3…)</option><option value="R" ${T.gEstilo === 'R' ? 'selected' : ''}>Romanos (I, II, III…)</option></select>
+                        <span class="text-gray-500">o escribe nombres propios en la columna de arriba, separados por comas (ej. Norte, Sur, Este).</span></div>
+                </div>
             </div>
             <div class="mt-4"><div class="text-sm font-bold text-green-800 mb-1">Días y horarios del torneo</div>${editorDias(torEdit)}</div>
         </div>`;
@@ -1236,7 +1311,7 @@ function renderTorneos() {
             <th class="p-2 border">Fechas</th><th class="p-2 border">Torneo</th><th class="p-2 border">Categorías</th><th class="p-2 border">Cierre de inscripciones</th><th class="p-2 border">Cooperación</th><th class="p-2 border">Premios</th><th class="p-2 border">Estado</th><th class="p-2 border no-print">Resultados</th>${admin ? '<th class="p-2 border no-print">Acciones</th>' : ''}</tr></thead><tbody>` +
             lista.map(x => {
                 let activo = x.id === db.activo, cats = x.cats || {};
-                let nomCats = categorias.filter(c => cats[c] && cats[c].on).map(c => (cats[c].nombre || c) + (cats[c].mod === 'D' ? ' (dobles)' : '')).join(', ');
+                let nomCats = categorias.filter(c => cats[c] && cats[c].on).map(c => ((cats[c].nombre && cats[c].nombre !== c ? cats[c].nombre : catAutoDe(cats[c])) || c) + (cats[c].mod === 'D' ? ' (dobles)' : '')).join(', ');
                 let modal = [x.sing ? 'Singles' : '', x.dob ? 'Dobles' : ''].filter(z => z).join(' y ');
                 let dias = diasEntre(x.f1, x.f2).filter(f => !(x.dias && x.dias[f] && x.dias[f].on === false)).length;
                 let premios = [x.trofeos ? 'Trofeos a 1.º y 2.º lugar' : '', x.recSemi ? 'Reconocimiento a semifinalistas' : '', x.recJug ? 'Reconocimiento a todos los jugadores' : '', x.premioOtro || ''].filter(z => z).join(' · ');
@@ -1266,11 +1341,171 @@ function renderTorneos() {
 }
 
 
+
+/* ---------- Vínculo con perfiles, historial y ranking interno ---------- */
+const normN = t => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+
+/* Une cada nombre inscrito con su perfil si hay uno solo con ese nombre. En dobles ("Ana / Beto") une a los dos. */
+function autoVincular() {
+    if (hist || !perf.listo || !Object.keys(perf.meta).length) return { ok: false };
+    let idx = new Map(), cambio = false, sin = [], amb = [];
+    Object.keys(perf.meta).forEach(id => { let k = normN(perf.meta[id].nombre); if (!idx.has(k)) idx.set(k, []); idx.get(k).push(id); });
+    categorias.forEach(c => {
+        if (!db.vinc[c]) db.vinc[c] = {};
+        let D = catModo(c) === 'D';
+        for (let i = 0; i < MAX_PLAYERS; i++) {
+            let nombre = String(db.jugadores[c][i] || '').trim(), cur = db.vinc[c][i] || '';
+            if (!nombre) { if (cur) { delete db.vinc[c][i]; cambio = true; } continue; }
+            let partes = D ? nombre.split(/\s*(?:\/|&|\+|\sy\s)\s*/i).filter(x => x) : [nombre], ids = [];
+            partes.forEach(p => {
+                let l = idx.get(normN(p));
+                if (l && l.length === 1) { if (!ids.includes(l[0])) ids.push(l[0]); }
+                else if (l) amb.push(p); else sin.push({ cat: c, slot: i, nombre: p });
+            });
+            let nuevo = ids.join(',');
+            if (nuevo !== cur) { if (nuevo) db.vinc[c][i] = nuevo; else delete db.vinc[c][i]; cambio = true; }
+        }
+    });
+    return { ok: true, cambio, sin, amb };
+}
+function pintarVinculos() {
+    document.querySelectorAll('.nombres-input').forEach(el => {
+        let v = (db.vinc[el.dataset.cat] || {})[parseInt(el.dataset.idx)];
+        el.classList.toggle('vinculado', !!v);
+        let ids = v ? v.split(',').filter(x => perf.meta[x]) : [];
+        el.title = ids.length ? 'Perfil: ' + ids.map(x => perf.meta[x].nombre + ' (reg. ' + numTxt(perf.meta[x].num || 0) + ')').join(' · ') : '';
+    });
+}
+function pintarDatalistPerfiles() {
+    let dl = document.getElementById('dl_perfiles');
+    if (!dl) return;
+    dl.innerHTML = Object.keys(perf.meta).sort((a, b) => normN(perf.meta[a].nombre).localeCompare(normN(perf.meta[b].nombre))).map(i => {
+        let m = perf.meta[i];
+        return `<option value="${esc(m.nombre)}" label="${esc(numTxt(m.num || 0) + (m.club ? ' · ' + m.club : '') + (m.ciudad ? ' · ' + m.ciudad : ''))}"></option>`;
+    }).join('');
+}
+
+/* Resultado de una categoría del torneo que esté cargado en "db": posición final de cada jugador */
+const NOMBRE_RONDA = { 'Octavos': 'Octavos de final', 'Cuartos': 'Cuartos de final', 'Semifinales': 'Semifinalista', 'Final': 'Finalista' };
+const PTS_POS = { 'Campeón': 100, 'Finalista': 70, 'Semifinalista': 45, 'Cuartos de final': 25, 'Octavos de final': 15, 'Fase de grupos': 10, '1º lugar': 100, '2º lugar': 70, '3º lugar': 45, '4º lugar': 25 };
+const MULT_TIPO = [1, 1.25, 1, 1.25, 1, 1.5, 2, 1.5, 1];   // mismo orden que TIPOS_TORNEO
+function resultadosCat(cat) {
+    let info = computeCat(cat);
+    if (info.N < 3) return { completa: false, filas: [] };
+    let base = {};
+    getActivos(db, cat).forEach(p => { base[p.slot] = { slot: p.slot, nombre: p.name, pj: 0, pg: 0, pos: 'Fase de grupos' }; });
+    info.tables.forEach(t => t.stats.forEach(x => { if (base[x.slot]) { base[x.slot].pj += x.pj; base[x.slot].pg += x.pg; } }));
+    let completa = false;
+    if (info.numGroups === 1) {
+        let t = info.tables[0]; completa = t.total > 0 && t.played === t.total;
+        t.stats.forEach((x, i) => { base[x.slot].pos = (i + 1) + 'º lugar'; });
+    } else {
+        let rb = resolveBracket(cat, info);
+        completa = !!(rb.winners.F && !rb.winners.F.bye);
+        getBracket(info.numGroups).forEach(rd => rd.matches.forEach(([key]) => {
+            let [a, b, w] = rb.sides[key];
+            if (!a || !b || a.bye || b.bye || !w) return;
+            let gan = w === 1 ? a : b, per = w === 1 ? b : a;
+            base[a.slot].pj++; base[b.slot].pj++; base[gan.slot].pg++;
+            base[per.slot].pos = NOMBRE_RONDA[rd.title] || 'Fase de grupos';
+            if (key === 'F') base[gan.slot].pos = 'Campeón';
+        }));
+    }
+    return { completa, filas: Object.values(base) };
+}
+
+/* Recorre el torneo en operación y los guardados: devuelve una fila por jugador, categoría y torneo terminado */
+function calcularHistorial() {
+    let real = hist ? hist.real : db, filas = [], sinPerfil = 0, fuentes = [];
+    if (real.activo && real.torneos[real.activo]) fuentes.push({ id: real.activo, d: real });
+    Object.keys(real.archivo || {}).forEach(id => {
+        let a = real.archivo[id];
+        if (!real.torneos[id] || !a || !a.pub) return;
+        let v = fromRemote(a.pub, { datos: {} }); v.torneos = real.torneos; v.activo = id; v.archivo = {};
+        fuentes.push({ id, d: v });
+    });
+    let guardado = db;
+    try {
+        fuentes.forEach(({ id, d }) => {
+            db = d;
+            let T = real.torneos[id], mult = MULT_TIPO[TIPOS_TORNEO.indexOf(T.tipo)] || 1;
+            catsActivas().forEach(cat => {
+                let r = resultadosCat(cat);
+                if (!r.completa) return;
+                let modo = catModo(cat), nomCat = catTitulo(cat);
+                r.filas.forEach(f => {
+                    let ids = String((db.vinc[cat] || {})[f.slot] || '').split(',').filter(x => x);
+                    if (!ids.length) { sinPerfil++; return; }
+                    let pts = Math.round((PTS_POS[f.pos] || 10) * mult);
+                    ids.forEach(pid => filas.push({ pid, torneoId: id, torneo: T.nombre || '', f1: T.f1 || '', tipo: T.tipo || '', cat: catClave(cat), nomCat, modo, jugador: f.nombre, pos: f.pos, pts, pj: f.pj, pg: f.pg }));
+                });
+            });
+        });
+    } finally { db = guardado; }
+    return { filas, sinPerfil };
+}
+function historialDe(pid, H) { return (H || calcularHistorial()).filas.filter(f => f.pid === pid).sort((a, b) => String(b.f1).localeCompare(String(a.f1))); }
+function htmlHistorial(pid) {
+    let h = historialDe(pid);
+    if (!h.length) return `<div class="mb-4"><div class="mb-1 font-bold text-sm text-gray-700">📈 Historial de torneos</div><p class="text-xs text-gray-500">Aún no hay torneos terminados con este jugador. Aparece cuando su nombre en las inscripciones coincide con este perfil (se marca en verde) y la categoría termina.</p></div>`;
+    let tit = h.filter(x => x.pos === 'Campeón' || x.pos === '1º lugar').length, pts = h.reduce((a, x) => a + x.pts, 0), pj = h.reduce((a, x) => a + x.pj, 0), pg = h.reduce((a, x) => a + x.pg, 0);
+    return `<div class="mb-4"><div class="mb-1 font-bold text-sm text-gray-700">📈 Historial de torneos</div>
+        <div class="text-xs text-gray-600 mb-2">${h.length} participación(es) · 🏆 ${tit} título(s) · ${pg} ganados de ${pj} partidos · <b>${pts} pts</b></div>
+        <div class="overflow-x-auto"><table class="text-xs border-collapse w-full"><thead><tr class="bg-gray-100 text-gray-600"><th class="p-1 border">Fecha</th><th class="p-1 border text-left">Torneo</th><th class="p-1 border">Categoría</th><th class="p-1 border">Resultado</th><th class="p-1 border">PG/PJ</th><th class="p-1 border">Pts</th></tr></thead><tbody>` +
+        h.map(x => `<tr class="border-b"><td class="p-1 border whitespace-nowrap">${esc(x.f1 ? fechaCorta(x.f1) : '—')}</td><td class="p-1 border">${esc(x.torneo)}</td><td class="p-1 border text-center">${esc(x.nomCat)}${x.modo === 'D' ? ' (dobles)' : ''}</td><td class="p-1 border text-center font-bold">${esc(x.pos)}</td><td class="p-1 border text-center">${x.pg}/${x.pj}</td><td class="p-1 border text-center font-bold">${x.pts}</td></tr>`).join('') + `</tbody></table></div></div>`;
+}
+
+/* Ranking interno */
+function navPerf() {
+    const b = (v, t) => `<button class="perf-vista px-3 py-1 rounded text-sm font-bold ${perf.vista === v ? 'bg-green-700 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}" data-v="${v}">${t}</button>`;
+    return `<div class="flex gap-2 mb-3">${b('perfiles', '🪪 Perfiles')}${b('ranking', '🏅 Ranking')}</div>`;
+}
+function renderRanking() {
+    const cont = document.getElementById('tab_Perfiles');
+    cargarPerfilesLocal();
+    if (!puedeEditar()) { cont.innerHTML = ''; return; }
+    let H = calcularHistorial(), rk = perf.rk;
+    let anios = Array.from(new Set(H.filas.map(f => String(f.f1).slice(0, 4)).filter(x => x))).sort().reverse();
+    let cats = Array.from(new Set(H.filas.map(f => f.cat))).sort(), nomClave = {}; H.filas.forEach(f => { nomClave[f.cat] = f.nomCat; });
+    if (rk.per && !anios.includes(rk.per)) rk.per = '';
+    if (rk.cat && !cats.includes(rk.cat)) rk.cat = '';
+    let ag = {};
+    H.filas.filter(f => (!rk.per || String(f.f1).slice(0, 4) === rk.per) && (!rk.cat || f.cat === rk.cat) && f.modo === rk.mod).forEach(f => {
+        let a = ag[f.pid] || (ag[f.pid] = { pid: f.pid, pts: 0, pj: 0, pg: 0, tor: new Set(), tit: 0, fin: 0 });
+        a.pts += f.pts; a.pj += f.pj; a.pg += f.pg; a.tor.add(f.torneoId + f.cat);
+        if (f.pos === 'Campeón' || f.pos === '1º lugar') a.tit++; else if (f.pos === 'Finalista' || f.pos === '2º lugar') a.fin++;
+    });
+    let lista = Object.values(ag).filter(a => perf.meta[a.pid]).sort((x, y) => y.pts - x.pts || y.tit - x.tit || y.pg - x.pg || normN(perf.meta[x.pid].nombre).localeCompare(normN(perf.meta[y.pid].nombre)));
+    let pos = 0, ant = null, shown = 0;
+    let filas = lista.map((a, i) => {
+        if (a.pts !== ant) { pos = i + 1; ant = a.pts; }
+        let m = perf.meta[a.pid];
+        return `<tr class="border-b perf-card cursor-pointer hover:bg-green-50" data-id="${esc(a.pid)}"><td class="p-1 border text-center font-bold">${pos}</td>
+            <td class="p-1 border"><span class="font-bold">${esc(m.nombre)}</span> <span class="text-xs text-gray-500 font-mono">${numTxt(m.num || 0)}</span></td>
+            <td class="p-1 border text-xs">${m.socio === false ? 'Libre' : esc(m.club || '—')}</td>
+            <td class="p-1 border text-center">${a.tor.size}</td><td class="p-1 border text-center">${a.tit}</td><td class="p-1 border text-center">${a.fin}</td>
+            <td class="p-1 border text-center">${a.pg}/${a.pj}</td><td class="p-1 border text-center">${a.pj ? Math.round(a.pg / a.pj * 100) + '%' : '—'}</td>
+            <td class="p-1 border text-center font-bold text-green-800">${a.pts}</td></tr>`;
+    }).join('');
+    cont.innerHTML = `<div class="bg-white p-4 rounded-lg shadow-md">${navPerf()}
+        <div class="flex flex-wrap items-center gap-3 mb-3">
+            <h2 class="text-xl font-bold text-gray-800">🏅 Ranking interno</h2>
+            <select id="rk_mod" class="field" style="max-width:150px"><option value="S" ${rk.mod === 'S' ? 'selected' : ''}>Singles</option><option value="D" ${rk.mod === 'D' ? 'selected' : ''}>Dobles</option></select>
+            <select id="rk_cat" class="field" style="max-width:190px"><option value="">Todas las categorías</option>${cats.map(c => `<option value="${esc(c)}" ${rk.cat === c ? 'selected' : ''}>${esc(nomClave[c] || c)}</option>`).join('')}</select>
+            <select id="rk_per" class="field" style="max-width:150px"><option value="">Histórico</option>${anios.map(a => `<option ${rk.per === a ? 'selected' : ''}>${a}</option>`).join('')}</select>
+        </div>
+        ${lista.length ? `<div class="overflow-x-auto"><table class="text-sm border-collapse w-full"><thead><tr class="bg-gray-100 text-gray-600 text-xs"><th class="p-1 border">#</th><th class="p-1 border text-left">Jugador</th><th class="p-1 border">Club</th><th class="p-1 border">Torneos</th><th class="p-1 border">🏆</th><th class="p-1 border">Finales perdidas</th><th class="p-1 border">PG/PJ</th><th class="p-1 border">% PG</th><th class="p-1 border">Puntos</th></tr></thead><tbody>${filas}</tbody></table></div>`
+            : '<p class="text-sm text-gray-500 py-6 text-center">Todavía no hay resultados para el ranking. Cuenta cada categoría terminada (con campeón) cuyos jugadores estén vinculados a un perfil. Usa "🔗 Vincular con perfiles" en Inscripciones.</p>'}
+        ${H.sinPerfil ? `<p class="text-xs text-amber-700 mt-2">${H.sinPerfil} participación(es) de torneos terminados no cuentan porque el jugador no tiene perfil vinculado.</p>` : ''}
+        <details class="mt-3 text-xs text-gray-600"><summary class="cursor-pointer font-bold">¿Cómo se calculan los puntos?</summary>
+            <p class="mt-1">Por categoría terminada: Campeón 100 · Finalista 70 · Semifinalista 45 · Cuartos 25 · Octavos 15 · Eliminado en grupos 10 (en grupo único: 1.º 100, 2.º 70, 3.º 45, 4.º 25, después 10). Los puntos se multiplican según el tipo de torneo: Interno ×1, Open ×1.25, Dual meet ×1, Interclubes ×1.25, Avante ×1, Regional ×1.5, Nacional ×2, UTR ×1.5. En dobles los puntos son para cada integrante de la pareja. Es un ranking interno de referencia y no tiene relación con el número de registro.</p></details></div>`;
+}
+
 /* ---------- Perfiles de jugadores (fotos, nacimiento, ciudad, club, UTR, n.º de registro) ---------- */
 /* Datos personales y fotografías: solo los ven los administradores. Viven fuera del torneo, en su propio nodo:
    perfiles/meta/{id} (datos + miniatura), perfiles/fotos/{id} (3 fotos, solo al abrir el perfil), perfiles/cont (contador). */
 const PERF_KEY = 'torneoDinPerfiles1', FOTO_KEY = 'torneoDinFotos1';
-const perf = { meta: {}, fotos: {}, cont: 0, listo: false, error: '', ed: null, q: '', fclub: '', fcat: '' };
+const perf = { meta: {}, fotos: {}, cont: 0, listo: false, error: '', ed: null, q: '', fclub: '', fcat: '', vista: 'perfiles', rk: { per: '', cat: '', mod: 'S' } };
 const FOTOS_PERFIL = [['r', 'Rostro', 'Solo la cara, de frente'], ['d', 'Cuerpo completo · ropa de tenis', 'Con raqueta y pelota'], ['c', 'Cuerpo completo · ropa normal', 'Pants y/o chamarra']];
 const numTxt = n => String(n).padStart(4, '0');
 const imgOk = x => (typeof x === 'string' && x.startsWith('data:image/')) ? x : '';
@@ -1292,7 +1527,9 @@ function edadDe(n) {
     return e >= 0 ? e : '';
 }
 function perfilesCambio() {
-    if (tabActiva() === 'Perfiles' && nube.rol === 'admin' || (!nube.activa && tabActiva() === 'Perfiles')) pintarListaPerfiles();
+    pintarDatalistPerfiles();
+    if (puedeEditar() && (!nube.activa || nube.hora)) { let r = autoVincular(); if (r.ok && r.cambio) { saveDB(); } pintarVinculos(); }
+    if (tabActiva() === 'Perfiles' && puedeEditar()) { if (perf.vista === 'ranking') renderRanking(); else pintarListaPerfiles(); }
 }
 
 /* Reduce la foto en el navegador antes de guardarla (así pesa ~30-60 KB en vez de varios MB) */
@@ -1328,13 +1565,14 @@ function renderPerfiles() {
     cargarPerfilesLocal();
     const cont = document.getElementById('tab_Perfiles');
     if (!puedeEditar()) { cont.innerHTML = ''; return; }
-    cont.innerHTML = `<div class="bg-white p-4 rounded-lg shadow-md">
+    if (perf.vista === 'ranking') { renderRanking(); return; }
+    cont.innerHTML = `<div class="bg-white p-4 rounded-lg shadow-md">${navPerf()}
         <div class="flex flex-wrap items-center gap-3 mb-3">
             <h2 class="text-xl font-bold text-gray-800">🪪 Perfiles de jugadores</h2>
             <button id="perf_nuevo" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm font-bold">＋ Nuevo perfil</button>
             <input id="perf_buscar" type="search" class="field" style="max-width:260px" placeholder="Buscar nombre, ciudad, club o n.º…" value="${esc(perf.q)}">
             <select id="perf_fclub" class="field" style="max-width:220px"></select>
-            <select id="perf_fcat" class="field" style="max-width:170px"><option value="">Todas las categorías</option>${categorias.map(c => `<option value="${c}" ${perf.fcat === c ? 'selected' : ''}>Categoría ${c}</option>`).join('')}</select>
+            <select id="perf_fcat" class="field" style="max-width:170px"><option value="">Todos los niveles</option>${NIVELES.map(c => `<option value="${c}" ${perf.fcat === c ? 'selected' : ''}>Nivel ${c}</option>`).join('')}</select>
             <span id="perf_total" class="text-sm text-gray-500"></span>
         </div>
         <p class="text-xs text-gray-500 mb-3">Los perfiles (fotos, fecha de nacimiento, ciudad, club) solo los ven los administradores. El número de registro se asigna en orden y no tiene relación con el nivel de juego.</p>
@@ -1373,7 +1611,7 @@ function pintarListaPerfiles() {
                 <div class="font-bold text-gray-800 break-words">${esc(m.nombre || '(sin nombre)')}</div>
                 <div class="text-xs text-gray-500">Reg. <span class="font-mono font-bold">${numTxt(m.num || 0)}</span>${e !== '' ? ` · ${e} años` : ''}</div>
                 <div class="text-xs text-gray-600 break-words">${esc(m.ciudad || '')}${m.ciudad ? ' · ' : ''}${m.socio === false ? 'Libre' : esc(m.club || 'Club sin indicar')}</div>
-                <div class="mt-1 flex flex-wrap gap-1 text-xs">${m.utr !== '' && m.utr != null ? `<span class="bg-blue-100 text-blue-800 rounded px-2">UTR ${esc(m.utr)}</span>` : ''}${m.cat ? `<span class="bg-green-100 text-green-800 rounded px-2">Cat ${esc(m.cat)}</span>` : ''}<span class="bg-gray-100 text-gray-600 rounded px-2">📷 ${nf}/3</span></div>
+                <div class="mt-1 flex flex-wrap gap-1 text-xs">${m.utr !== '' && m.utr != null ? `<span class="bg-blue-100 text-blue-800 rounded px-2">UTR ${esc(m.utr)}</span>` : ''}${m.cat ? `<span class="bg-green-100 text-green-800 rounded px-2">Nivel ${esc(m.cat)}</span>` : ''}<span class="bg-gray-100 text-gray-600 rounded px-2">📷 ${nf}/3</span></div>
             </div></div>`;
     }).join('') + '</div>';
 }
@@ -1418,12 +1656,13 @@ function formPerfil() {
                 <input id="pf_club" class="field pf-in" data-k="club" value="${v('club')}" placeholder="Nombre del club" list="pf_clubes" ${d.socio ? '' : 'disabled'}>
                 <datalist id="pf_clubes">${Array.from(new Set(Object.values(perf.meta).map(m => String(m.club || '').trim()).filter(x => x))).map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
             <div>${lab('Puntos UTR (opcional)')}<input type="number" step="0.01" min="1" max="16.5" class="field pf-in" data-k="utr" value="${v('utr')}" placeholder="1.00 – 16.50"></div>
-            <div>${lab('Categoría (opcional)')}<select class="field pf-in" data-k="cat"><option value="">— sin definir —</option>${categorias.map(c => `<option value="${c}" ${d.cat === c ? 'selected' : ''}>Categoría ${c}</option>`).join('')}</select></div>
+            <div>${lab('Nivel (opcional)')}<select class="field pf-in" data-k="cat"><option value="">— sin definir —</option>${NIVELES.map(c => `<option value="${c}" ${d.cat === c ? 'selected' : ''}>Nivel ${c}</option>`).join('')}</select></div>
             <div style="grid-column:1/-1">${lab('Observaciones (opcional)')}<input class="field pf-in" data-k="obs" value="${v('obs')}" placeholder="Mano dominante, lesiones a considerar, etc."></div>
             <label class="flex items-center gap-2 text-sm" style="grid-column:1/-1"><input type="checkbox" class="pf-in" data-k="aut" ${d.aut ? 'checked' : ''}> Cuenta con autorización para guardar y usar sus fotografías (si es menor de edad, de su padre, madre o tutor)</label>
         </div>
         <div class="mb-1 font-bold text-sm text-gray-700">Fotografías</div>
         <div id="pf_fotos" class="grid gap-3 mb-4" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))"></div>
+        ${E.id ? htmlHistorial(E.id) : ''}
         <div class="flex flex-wrap gap-2 justify-between border-t pt-3">
             <div>${E.id ? '<button id="pf_borrar" class="bg-red-100 text-red-700 border border-red-300 px-3 py-2 rounded text-sm font-bold">Eliminar perfil</button>' : ''}</div>
             <div class="flex gap-2"><button id="pf_cancelar" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded font-bold">Cancelar</button>
@@ -1442,15 +1681,14 @@ function pintarFotosPerfil() {
 }
 
 async function siguienteNumero() {
+    let mayor = Math.max(perf.cont || 0, 0, ...Object.values(perf.meta).map(m => parseInt(m.num) || 0)), res;
     if (nube.activa && nube.api && nube.api.runTransaction) {
         let r = await nube.api.runTransaction(nube.api.ref(nube.rtdb, 'perfiles/cont'), v => (parseInt(v) || 0) + 1);
         let n = parseInt(r.snapshot.val());
-        let mayor = Math.max(0, ...Object.values(perf.meta).map(m => parseInt(m.num) || 0));
-        if (n > mayor) return n;
-        return mayor + 1;     // el contador estaba atrasado (por ejemplo, perfiles importados): se continúa después del mayor
-    }
-    let mayor = Math.max(perf.cont || 0, 0, ...Object.values(perf.meta).map(m => parseInt(m.num) || 0));
-    perf.cont = mayor + 1; return perf.cont;
+        res = n > mayor ? n : mayor + 1;     // si el contador estaba atrasado se continúa después del mayor
+        if (res !== n) await nube.api.update(nube.api.ref(nube.rtdb), { 'perfiles/cont': res });
+    } else res = mayor + 1;
+    perf.cont = res; return res;
 }
 
 async function guardarPerfil() {
@@ -1531,6 +1769,57 @@ document.addEventListener('change', async e => {
     }
 });
 
+
+async function crearPerfilesBasicos(nombres) {
+    let nuevos = {};
+    for (let n of nombres) {
+        let id = 'p' + Date.now().toString(36) + Math.floor(Math.random() * 46656).toString(36) + Object.keys(nuevos).length;
+        let num = await siguienteNumero();
+        nuevos[id] = { nombre: n, nac: '', ciudad: '', socio: true, club: '', utr: '', cat: '', aut: false, obs: '', num, fr: false, fd: false, fc: false, mini: '', act: Date.now() };
+    }
+    if (nube.activa) { let up = {}; Object.keys(nuevos).forEach(id => { up['perfiles/meta/' + id] = nuevos[id]; }); await nube.api.update(nube.api.ref(nube.rtdb), up); }
+    else { Object.assign(perf.meta, nuevos); guardarPerfilesLocal(); perfilesCambio(); }
+}
+document.addEventListener('click', e => {
+    let b = e.target.closest && e.target.closest('.ren-grupos');
+    if (!b) return;
+    let cat = b.dataset.cat, T = torneoAct();
+    if (!T) { alert('Para nombrar los grupos primero pon un torneo en operación (pestaña Torneos).'); return; }
+    let info = computeCat(cat), n = Math.max(info.numGroups, 1);
+    let actual = (T.cats && T.cats[cat] && T.cats[cat].grupos) || '';
+    let r = prompt(`Nombres de los grupos de ${catEtiqueta(cat)}, separados por comas (${n} grupo(s) ahora).\nEjemplos:  1, 2, 3   ·   I, II, III   ·   Norte, Sur, Este\nDeja vacío para el nombre automático del torneo.`, actual);
+    if (r === null) return;
+    T.cats = T.cats || catsDefault();
+    T.cats[cat] = T.cats[cat] || { on: true, nombre: '', mod: 'S' };
+    T.cats[cat].grupos = r.split(',').map(x => x.trim()).filter(x => x).join(', ');
+    saveDB(); buildCategoriasDOM(cat); updateStandings(cat);
+});
+document.addEventListener('click', async e => {
+    let t = e.target;
+    if (t.classList && t.classList.contains('perf-vista')) { perf.vista = t.dataset.v; renderPerfiles(); return; }
+    if (t.id === 'btn_vincular') {
+        cargarPerfilesLocal();
+        let msg = document.getElementById('vinc_msg');
+        if (!Object.keys(perf.meta).length) { msg.textContent = 'Aún no hay perfiles. Crea algunos en la pestaña Perfiles.'; return; }
+        let r = autoVincular(); saveDB(); pintarVinculos();
+        let vinc = 0; categorias.forEach(c => { vinc += Object.keys(db.vinc[c] || {}).length; });
+        let sin = Array.from(new Set(r.sin.map(x => x.nombre.trim()))), amb = Array.from(new Set(r.amb));
+        msg.textContent = `✓ ${vinc} vinculado(s) · ${sin.length} sin perfil` + (amb.length ? ` · ${amb.length} nombre(s) repetido(s) en perfiles (no se vinculan): ${amb.join(', ')}` : '');
+        if (sin.length && confirm(`${sin.length} nombre(s) no tienen perfil:\n\n${sin.slice(0, 15).join('\n')}${sin.length > 15 ? '\n…' : ''}\n\n¿Crear un perfil con solo el nombre para cada uno? (después puedes completar sus datos y fotos)`)) {
+            msg.textContent = 'Creando perfiles…';
+            try { await crearPerfilesBasicos(sin); } catch (err) { msg.textContent = 'No se pudieron crear los perfiles: ' + err.message; return; }
+            if (!nube.activa) { saveDB(); }
+            msg.textContent = `✓ Se crearon ${sin.length} perfil(es). Se vincularán en unos segundos.`;
+        }
+    }
+});
+document.addEventListener('change', e => {
+    let t = e.target;
+    if (t.id === 'rk_mod') { perf.rk.mod = t.value; renderRanking(); }
+    else if (t.id === 'rk_cat') { perf.rk.cat = t.value; renderRanking(); }
+    else if (t.id === 'rk_per') { perf.rk.per = t.value; renderRanking(); }
+});
+
 /* ---------- Programación de horarios y asignación de canchas ---------- */
 const DURACIONES = [60, 75, 90, 105, 120, 135, 150, 165, 180];
 let progFiltroCat = '', progFiltroTxt = '';
@@ -1581,7 +1870,7 @@ function todosLosPartidos() {
         info.groups.forEach((g, gi) => {
             jornadas(g).forEach((jor, r) => jor.forEach(([a, b]) => {
                 let key = pairKey(a, b);
-                lista.push({ cat, key, fase: `Grupo ${GROUP_NAMES[gi]}`, j1: a.name, j2: b.name, jug: [a.slot, b.slot], ronda: r, gi, score: db.scores[cat][key] || '', dep: null });
+                lista.push({ cat, key, fase: `Grupo ${gNombre(cat, gi)}`, j1: a.name, j2: b.name, jug: [a.slot, b.slot], ronda: r, gi, score: db.scores[cat][key] || '', dep: null });
             }));
         });
         let rounds = getBracket(info.numGroups);
@@ -1589,7 +1878,7 @@ function todosLosPartidos() {
         let rb = resolveBracket(cat, info);
         rounds.forEach((rd, ri) => rd.matches.forEach(([key, s1, s2]) => {
             let [a, b] = rb.sides[key];
-            const nom = (p, src) => (p && !p.bye) ? p.nombre : (p && p.bye ? '(sin rival)' : srcLabel(src));
+            const nom = (p, src) => (p && !p.bye) ? p.nombre : (p && p.bye ? '(sin rival)' : srcLabel(src, cat));
             lista.push({ cat, key, fase: rd.title === 'Final' ? 'Final' : `${rd.title} ${key}`, j1: nom(a, s1), j2: nom(b, s2), jug: [], ronda: 100 + ri, gi: 99,
                 score: db.scores[cat][key] || '', dep: [s1, s2].filter(x => x.t === 'w').map(x => x.m), trasGrupos: [s1, s2].some(x => x.t !== 'w') });
         }));
@@ -1844,7 +2133,7 @@ function renderJugadores() {
             let d = getDato(cat, p.slot), gi = grupoDe[p.slot];
             html += `<tr class="border-b">
                 <td class="p-1 border text-center text-gray-500">${i + 1}</td>
-                <td class="p-1 border text-center font-bold text-green-800">${gi !== undefined ? GROUP_NAMES[gi] : '-'}</td>
+                <td class="p-1 border text-center font-bold text-green-800">${gi !== undefined ? esc(gNombre(cat, gi)) : '-'}</td>
                 <td class="p-1 border" style="min-width:150px">${nameInput(cat, p)}</td>
                 ${CAMPOS.map(c => `<td class="p-1 border"><input type="text" inputmode="${c[2]}" class="field dato-input text-xs ${c[3]}" style="padding:2px 6px" data-cat="${cat}" data-slot="${p.slot}" data-campo="${c[0]}" value="${esc(d[c[0]])}" placeholder="${c[4]}"></td>`).join('')}
                 <td class="p-1 border"><select class="dato-input border rounded p-1 text-xs bg-gray-50" data-cat="${cat}" data-slot="${p.slot}" data-campo="catRec">
@@ -1866,7 +2155,7 @@ function exportarCSV() {
     let rows = [['Categoría', 'Grupo', 'Nombre', 'Celular', 'Edad', 'Correo', 'UTR', 'Clasificación interna', 'Categoría recomendada', 'Notas']];
     catsActivas().forEach(cat => {
         let info = computeCat(cat), grupoDe = {};
-        info.groups.forEach((g, gi) => g.forEach(p => { grupoDe[p.slot] = GROUP_NAMES[gi]; }));
+        info.groups.forEach((g, gi) => g.forEach(p => { grupoDe[p.slot] = gNombre(cat, gi); }));
         getActivos(db, cat).forEach(p => {
             let d = getDato(cat, p.slot);
             rows.push([catNombre(cat), grupoDe[p.slot] || '', p.name, d.tel, d.edad, d.email, d.utr, d.clasif, d.catRec, d.notas]);
@@ -1884,7 +2173,7 @@ function mensajeGrupo(cat, gi) {
     let info = computeCat(cat), g = info.groups[gi], t = info.tables[gi];
     let L = [];
     L.push(`🎾 ${db.ajustes.torneo.trim() || 'Torneo de tenis'}`);
-    L.push(`${catNombre(cat) === cat ? 'Categoría ' + cat : catNombre(cat)} - Grupo ${GROUP_NAMES[gi]}`);
+    L.push(`${catEtiqueta(cat)} - Grupo ${gNombre(cat, gi)}`);
     L.push('', 'RESULTADOS');
     for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) {
         let sc = db.scores[cat][pairKey(g[i], g[j])] || '';
@@ -1918,7 +2207,7 @@ function abrirEnvio(cat, gi, slotDestacado) {
     envio = { cat, gi };
     let conCorreo = g.filter(p => emailOk(getDato(cat, p.slot).email)).length;
     let html = `<div class="flex justify-between items-start mb-2">
-            <h3 class="text-lg font-bold text-green-800">Enviar resultados - ${esc(catTitulo(cat))}, Grupo ${GROUP_NAMES[gi]}</h3>
+            <h3 class="text-lg font-bold text-green-800">Enviar resultados - ${esc(catTitulo(cat))}, Grupo ${esc(gNombre(cat, gi))}</h3>
             <button class="cerrar-envio text-gray-500 hover:text-black text-xl font-bold px-2">✕</button>
         </div>
         <p class="text-xs text-gray-600 mb-1">Mensaje (puedes editarlo antes de enviar). A cada jugador se le antepone un saludo con su nombre.</p>
@@ -1950,7 +2239,7 @@ function cerrarEnvio() {
     m.classList.add('hidden'); m.classList.remove('flex'); envio = null;
 }
 function asuntoEnvio() {
-    return `Resultados ${db.ajustes.torneo.trim() || 'Torneo de tenis'} - ${catTitulo(envio.cat)} Grupo ${GROUP_NAMES[envio.gi]}`;
+    return `Resultados ${db.ajustes.torneo.trim() || 'Torneo de tenis'} - ${catTitulo(envio.cat)} Grupo ${gNombre(envio.cat, envio.gi)}`;
 }
 function abrirEnlace(url, nuevaVentana) {
     let a = document.createElement('a');
@@ -2025,7 +2314,7 @@ function matchHtml(cat, key, title, side1Html, side2Html, bg, isSets) {
 
 function bracketSideHtml(cat, key, n, src) {
     if (src.t === 'm') return `<select class="manual-select w-full text-[11px] p-1 bg-yellow-100 border border-yellow-300 rounded" data-cat="${cat}" data-mkey="${src.k}" id="sel_${cat}_${src.k}" title="Elige al mejor tercero que ocupa este lugar"></select>`;
-    return `<span id="lbl_${cat}_${key}_${n}" class="w-full text-xs leading-tight break-words font-bold text-gray-400 block">${srcLabel(src)}</span>`;
+    return `<span id="lbl_${cat}_${key}_${n}" class="w-full text-xs leading-tight break-words font-bold text-gray-400 block">${srcLabel(src, cat)}</span>`;
 }
 
 function buildCategoriasDOM(cat) {
@@ -2043,8 +2332,9 @@ function buildCategoriasDOM(cat) {
         <option value="sets" ${fmt[fase] === 'sets' ? 'selected' : ''}>2 de 3 sets</option></select>`;
 
     let headerHtml = `<div class="flex flex-col md:flex-row justify-between items-center bg-white p-3 rounded shadow mb-4 border-l-4 border-green-600">
-        <h2 class="text-xl font-bold text-green-800">${catNombre(cat) === cat ? 'Categoría ' + cat : esc(catNombre(cat))}${catModo(cat) === 'D' ? ' (dobles)' : ''} - <span class="text-indigo-600">${N} Inscritos</span></h2>
+        <h2 class="text-xl font-bold text-green-800">${esc(catEtiqueta(cat))}${catModo(cat) === 'D' ? ' (dobles)' : ''} - <span class="text-indigo-600">${N} Inscritos</span></h2>
         <div class="solo-admin flex items-center flex-wrap mt-2 md:mt-0 gap-2">
+            <button class="ren-grupos text-xs bg-indigo-50 text-indigo-800 border border-indigo-200 px-2 py-1 rounded hover:bg-indigo-100 font-bold" data-cat="${cat}" title="Cambiar cómo se llaman los grupos de esta categoría">✏️ Nombres de grupos</button>
             <label class="text-sm font-semibold text-gray-700">Grupos:</label>
             <select class="p-1 border rounded text-sm config-select bg-gray-50 shadow-sm" data-cat="${cat}">${opts}</select>${nota}
             <label class="text-sm font-semibold text-gray-700 ml-2" title="Formato de los partidos de grupo">Partidos de grupo:</label>${fmtSel('g')}
@@ -2073,7 +2363,7 @@ function buildCategoriasDOM(cat) {
     html += `<div class="grid grid-cols-1 ${numGroups === 1 ? '' : 'lg:grid-cols-2'} gap-6 mb-8">`;
 
     info.groups.forEach((g, gIdx) => {
-        let gName = GROUP_NAMES[gIdx];
+        let gName = esc(gNombre(cat, gIdx));
         html += `<div class="bg-white p-4 rounded shadow-md border-t-4 border-green-600">
             <div class="flex items-center justify-between mb-4 bg-green-50 py-1 px-2 rounded">
                 <h3 class="text-lg font-bold text-green-800">Grupo ${gName} (${g.length} Jug.)</h3>
@@ -2204,7 +2494,7 @@ function updateStandings(cat) {
         let html = `<option value="">${puedeEditar() ? '— Elegir mejor 3ro —' : 'Mejor 3ro (por definir)'}</option>`;
         (rb.cands || []).forEach(c => {
             if (usados.includes(c.slot)) return;
-            html += `<option value="${c.slot}" ${c.slot === mine ? 'selected' : ''}>${c.pos + 1}º ${GROUP_NAMES[c.gi]} · ${esc(c.nombre)} (${c.pg} PG, ${c.pct.toFixed(1)}%)</option>`;
+            html += `<option value="${c.slot}" ${c.slot === mine ? 'selected' : ''}>${c.pos + 1}º ${esc(gNombre(cat, c.gi))} · ${esc(c.nombre)} (${c.pg} PG, ${c.pct.toFixed(1)}%)</option>`;
         });
         sel.innerHTML = html;
     });
@@ -2216,10 +2506,10 @@ function updateStandings(cat) {
             let el = document.getElementById(`lbl_${cat}_${key}_${n}`);
             if (!el) return;
             let base = 'w-full text-xs leading-tight break-words font-bold block ';
-            if (!p) { el.textContent = srcLabel(src); el.title = ''; el.className = base + 'text-gray-400'; }
-            else if (p.bye) { el.textContent = '— sin rival (pasa directo)'; el.title = srcLabel(src); el.className = base + 'text-gray-400 italic'; }
+            if (!p) { el.textContent = srcLabel(src, cat); el.title = ''; el.className = base + 'text-gray-400'; }
+            else if (p.bye) { el.textContent = '— sin rival (pasa directo)'; el.title = srcLabel(src, cat); el.className = base + 'text-gray-400 italic'; }
             else {
-                let origen = srcLabel(src) + (p.de ? ' · ' + p.de : '');
+                let origen = srcLabel(src, cat) + (p.de ? ' · ' + p.de : '');
                 el.textContent = (src.t === 's' ? `(${src.n}) ` : '') + p.nombre + (p.prov ? ' (prov.)' : '');
                 el.title = p.prov ? `${origen} · provisional: faltan partidos de grupo` : origen;
                 el.className = base + (p.prov ? 'text-gray-500 italic' : (a && b && w === n ? 'text-green-700' : 'text-gray-700'));
@@ -2318,7 +2608,7 @@ document.addEventListener('change', e => {
         T.cats = T.cats || catsDefault();
         T.cats[c] = T.cats[c] || { on: false, nombre: '', mod: 'S' };
         T.cats[c][campo] = t.type === 'checkbox' ? t.checked : t.value;
-        if (campo === 'on' && t.checked && !T.cats[c].nombre) T.cats[c].nombre = c;
+        if (campo === 'on' && t.checked && !T.cats[c].nombre && !T.cats[c].nivel) T.cats[c].nombre = c;
         saveDB(); pintarTabs(); renderTorneos(); return;
     }
     if (t.classList.contains('dia-input')) {
@@ -2389,6 +2679,7 @@ document.addEventListener('click', e => {
         else if (acc === 'cerrar') { torEdit = ''; renderTorneos(); }
         else if (acc === 'activar') activarTorneo(id);
         else if (acc === 'ver') verHistorico(id);
+        else if (acc === 'plantilla') agregarCategoriasPlantilla(id);
         else if (acc === 'terminar') terminarTorneo();
         else if (acc === 'eliminar') {
             let T = db.torneos[id];
