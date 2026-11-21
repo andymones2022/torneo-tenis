@@ -32,7 +32,10 @@
         .win-row { background-color: #dcfce7 !important; font-weight: bold; }
         input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
         input[type="number"] { -moz-appearance: textfield; }
-    </style>
+    
+.grupo-input{background:transparent;border:0;border-bottom:2px dashed #16a34a;font:inherit;color:inherit;text-align:center;min-width:2ch;padding:0;outline:none}
+.grupo-input:hover{background:#dcfce7}.grupo-input:focus{background:#fff;border-bottom-style:solid}
+</style>
 </head>
 <body>
 <div class="mx-auto p-4" style="max-width:1800px">
@@ -2098,6 +2101,14 @@ async function enviarAlta() {
     alta.enviando = false;
 }
 
+/* Nombre del grupo editable en su lugar: al entrar se selecciona todo para sobrescribir; Enter acepta, Esc cancela */
+document.addEventListener('focusin', e => { if (e.target.classList && e.target.classList.contains('grupo-input')) { e.target.dataset.ant = e.target.value; e.target.select(); } });
+document.addEventListener('input', e => { let t = e.target; if (t.classList && t.classList.contains('grupo-input')) t.style.width = Math.max(2, t.value.length + 1) + 'ch'; });
+document.addEventListener('keydown', e => {
+    let t = e.target; if (!t.classList || !t.classList.contains('grupo-input')) return;
+    if (e.key === 'Enter') { e.preventDefault(); t.blur(); }
+    else if (e.key === 'Escape') { t.value = t.dataset.ant || t.value; t.blur(); }
+});
 document.addEventListener('click', async e => {
     let t = e.target, c = t.closest ? t.closest('button') : null;
     if (t.id === 'btn_alta') { abrirAlta(); return; }
@@ -3037,7 +3048,7 @@ function buildCategoriasDOM(cat) {
         let gName = esc(gNombre(cat, gIdx));
         html += `<div class="bg-white p-4 rounded shadow-md border-t-4 border-green-600">
             <div class="flex items-center justify-between mb-4 bg-green-50 py-1 px-2 rounded">
-                <h3 class="text-lg font-bold text-green-800">Grupo ${gName} (${g.length} Jug.)</h3>
+                <h3 class="text-lg font-bold text-green-800">Grupo ${(puedeEditar() && torneoAct()) ? `<input type="text" class="grupo-input" data-cat="${cat}" data-g="${gIdx}" maxlength="24" value="${gName}" style="width:${Math.max(2, String(gNombre(cat, gIdx)).length + 1)}ch" title="Escribe encima para cambiar el nombre del grupo: número, romano, nombre de persona, ciudad, cancha…" autocomplete="off">` : gName} (${g.length} Jug.)</h3>
                 <button class="solo-admin send-group-btn text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-1 rounded hover:bg-emerald-200 font-bold" data-cat="${cat}" data-g="${gIdx}" title="Enviar resultados del grupo por WhatsApp o correo">📤 Enviar resultados</button>
             </div>
             <div class="flex flex-col xl:flex-row gap-6">
@@ -3272,6 +3283,18 @@ document.addEventListener('change', e => {
         if (c === 'f1' && T.f1 && (!T.f2 || T.f2 < T.f1)) T.f2 = T.f1;
         if (c === 'nombre' && t.dataset.id === db.activo) db.ajustes.torneo = T.nombre;
         saveDB(); pintarTabs(); renderTorneos(); return;
+    }
+    if (t.classList.contains('grupo-input')) {
+        let T = torneoAct(), c = t.dataset.cat, gi = parseInt(t.dataset.g);
+        if (!T || hist) return;
+        let nuevo = t.value.replace(/,/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 24), n = computeCat(c).numGroups;
+        if (nuevo && Array.from({ length: n }, (_, i) => i).some(i => i !== gi && normN(gNombre(c, i)) === normN(nuevo))) { alert(`Ya hay otro grupo llamado "${nuevo}" en esta categoría. Elige un nombre distinto.`); refrescarUI(true); return; }
+        T.cats = T.cats || catsDefault();
+        T.cats[c] = T.cats[c] || { on: true, nombre: '', mod: 'S' };
+        let l = Array.from({ length: 8 }, (_, i) => i === gi ? nuevo : String(T.cats[c].grupos || '').split(',')[i] || '').map(x => x.trim());
+        while (l.length && !l[l.length - 1]) l.pop();
+        T.cats[c].grupos = l.join(',');          // un nombre vacío vuelve al automático (A, B, C / 1, 2, 3 / I, II, III)
+        saveDB(); refrescarUI(true); return;
     }
     if (t.classList.contains('tor-cat')) {
         let T = db.torneos[t.dataset.id], c = t.dataset.cat, campo = t.dataset.campo;
