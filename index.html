@@ -69,6 +69,7 @@
  <button id="btn_Programacion" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Programacion')">📅 Programación</button>
         <button id="btn_Capturistas" class="solo-admin solo-nube tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Capturistas')">🔐 Capturistas <span id="badge_pend" class="bg-red-600 text-white text-xs font-bold rounded-full px-2" style="display:none"></span></button>
 <span id="tabs-cats" style="display:contents"></span>
+        <button id="btn_resumen" class="px-4 py-2 font-bold text-blue-700 hover:text-blue-900 transition" onclick="resumenPDF()" title="Hoja de resumen con campeones y finalistas de cada categoría (imprimir o guardar como PDF)">🧾 Resumen PDF</button>
     </div>
 
     <!-- Pestaña Inscripciones -->
@@ -1485,6 +1486,57 @@ function pintarDatalistPerfiles() {
 const NOMBRE_RONDA = { 'Octavos': 'Octavos de final', 'Cuartos': 'Cuartos de final', 'Semifinales': 'Semifinalista', 'Final': 'Finalista' };
 const PTS_POS = { 'Campeón': 100, 'Finalista': 70, 'Semifinalista': 45, 'Cuartos de final': 25, 'Octavos de final': 15, 'Fase de grupos': 10, '1º lugar': 100, '2º lugar': 70, '3º lugar': 45, '4º lugar': 25 };
 const MULT_TIPO = [1, 1.25, 1, 1.25, 1, 1.5, 2, 1.5, 1];   // mismo orden que TIPOS_TORNEO
+/* ---------- Resumen de campeones y finalistas (una hoja, de la categoría menor a la mayor) ---------- */
+function categoriasResumen() {
+    const nivel = c => { let k = catCfg(c), n = k && k.nivel ? NIVELES.indexOf(k.nivel) : -1; return n < 0 ? 99 : n; };   // sin nivel: al principio
+    const rama = c => { let k = catCfg(c), n = k && k.rama ? ['V', 'F', 'M'].indexOf(k.rama) : -1; return n < 0 ? 9 : n; };
+    return catsActivas().filter(c => computeCat(c).N >= 3)
+        .sort((a, b) => nivel(b) - nivel(a) || rama(a) - rama(b) || categorias.indexOf(a) - categorias.indexOf(b));
+}
+function datosResumen() {
+    return categoriasResumen().map(c => {
+        let r = resultadosCat(c), info = computeCat(c);
+        let camp = r.filas.filter(f => f.pos === 'Campeón' || (info.numGroups === 1 && f.pos === '1º lugar')).map(f => f.nombre);
+        let fin = r.filas.filter(f => f.pos === 'Finalista' || (info.numGroups === 1 && f.pos === '2º lugar')).map(f => f.nombre);
+        if (!r.completa) { camp = []; fin = []; }
+        return { cat: c, titulo: catNombre(c), completa: r.completa, camp, fin };
+    });
+}
+function htmlResumen() {
+    let T = torneoAct(), datos = datosResumen();
+    let titulo = (db.ajustes.torneo || (T && T.nombre) || 'Torneo de tenis').trim();
+    let fechas = T && T.f1 ? rangoFechas(T) : '';
+    let hoy = new Date(), pie = `Generado el ${hoy.getDate()}/${hoy.getMonth() + 1}/${hoy.getFullYear()}`;
+    let nombres = l => l.length ? l.map(n => `<div>${esc(n)}</div>`).join('') : '<div class="p">Por definir</div>';
+    let filas = datos.map(d => `<div class="cat">
+        <div class="ct">${esc(d.titulo)}</div>
+        <div class="rw"><span class="lb">🏆 Campeón</span><div class="nm az">${nombres(d.camp)}</div></div>
+        <div class="rw"><span class="lb">🥈 Finalista</span><div class="nm vd">${nombres(d.fin)}</div></div></div>`).join('');
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Resumen - ${esc(titulo)}</title><style>
+        @page{size:letter portrait;margin:10mm}*{box-sizing:border-box}
+        body{font-family:Arial,Helvetica,sans-serif;margin:0;color:#222}
+        #hoja{padding:4mm 2mm}
+        h1{margin:0;text-align:center;font-size:26px;color:#15803d}.sub{text-align:center;font-size:14px;color:#555;margin:2px 0 12px}
+        .grid{display:grid;grid-template-columns:${datos.length > 7 ? '1fr 1fr' : '1fr'};gap:8px 14px}
+        .cat{border:1.5px solid #ccc;border-radius:8px;padding:6px 10px;break-inside:avoid}
+        .ct{font-size:17px;font-weight:bold;color:#14532d;border-bottom:1px solid #ddd;padding-bottom:2px;margin-bottom:4px}
+        .rw{display:flex;gap:8px;align-items:flex-start;margin:2px 0}.lb{width:92px;flex:none;font-size:12px;color:#555;padding-top:3px}
+        .nm{font-size:17px;font-weight:bold}.az{color:#2545D1}.vd{color:#006847}.p{color:#999;font-weight:normal;font-style:italic}
+        .pie{text-align:center;font-size:11px;color:#888;margin-top:10px}.bt{text-align:center;margin:10px}
+        @media print{.bt{display:none}}</style></head><body>
+        <div class="bt"><button onclick="window.print()" style="font-size:16px;padding:6px 16px">🖨 Imprimir / Guardar como PDF</button></div>
+        <div id="hoja"><h1>🎾 ${esc(titulo)}</h1><div class="sub">Campeones y finalistas${fechas ? ' · ' + esc(fechas) : ''}</div>
+        <div class="grid">${filas || '<div class="p">Aún no hay categorías con resultados.</div>'}</div><div class="pie">${pie}</div></div>
+        <script>(function(){var h=document.getElementById('hoja'),z=1;while(h.scrollHeight*z<640&&z<1.7){z+=0.05;h.style.zoom=z;}while(h.scrollHeight*z>940&&z>0.35){z-=0.04;h.style.zoom=z;}})();<\/script></body></html>`;
+}
+function resumenPDF() {
+    if (!categoriasResumen().length) { alert('Todavía no hay categorías con jugadores para resumir.'); return; }
+    let w = window.open('', '_blank');
+    if (!w) { alert('El navegador bloqueó la ventana. Permite ventanas emergentes para este sitio e inténtalo de nuevo.'); return; }
+    w.document.write(htmlResumen());
+    w.document.close(); w.focus(); setTimeout(() => w.print(), 500);
+}
+
 function resultadosCat(cat) {
     let info = computeCat(cat);
     if (info.N < 3) return { completa: false, filas: [] };
