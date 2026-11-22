@@ -199,7 +199,7 @@ function readJSON(key) {
 
 /* ---------- Base de datos ---------- */
 function initDB() {
-    let base = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, datos: {}, siembra: {}, horario: {}, vinc: {},
+    let base = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, datos: {}, siembra: {}, horario: {}, vinc: {}, bajas: {},
         prog: { canchas: 'Cancha 1\nCancha 2', f1: '', f2: '', ini: '08:00', fin: '20:00', dur: 90, desc: 0, cats: {}, dias: {} }, ajustes: { torneo: '', lada: '52' },
         torneos: {},   // calendario: id -> datos del torneo
         activo: '',    // id del torneo en operación (al que pertenecen inscripciones y marcadores)
@@ -215,7 +215,8 @@ function initDB() {
         base.prog.cats[c] = true;
         base.siembra[c] = null;  // orden de siembra ajustado a mano (lista de slots) o null = automático
         base.datos[c] = {};      // slot -> { tel, edad, email, utr, clasif, catRec, notas }
-        base.formato[c] = { g: 'pro', f: 'pro' };  // formato de grupos (g) y fase final (f): 'pro' = 8 juegos, 'sets' = 2 de 3
+        base.formato[c] = normFmt({});  // formato por fase (ver FMT_MODOS)
+        base.bajas[c] = {};      // slot -> 'sup' (se suprime de la tabla) | 'wo' (los partidos pendientes se dan por default al rival)
     });
     return base;
 }
@@ -260,8 +261,25 @@ function catModo(c) { let T = torneoAct(); return (T && T.cats && T.cats[c] && T
 
 function hasScores(cat) { return Object.values(db.scores[cat]).some(v => v); }
 function isGroupKey(k) { return k.startsWith('P_'); }
-function hasPhaseScores(cat, fase) { return Object.keys(db.scores[cat]).some(k => db.scores[cat][k] && isGroupKey(k) === (fase === 'g')); }
-function clearPhaseScores(cat, fase) { Object.keys(db.scores[cat]).forEach(k => { if (isGroupKey(k) === (fase === 'g')) delete db.scores[cat][k]; }); }
+/* Formato de partido por fase: g = grupos, o = octavos, q = cuartos, s = semifinales, fi = final.
+   Modos: 'pro' = a 8 juegos, 'p6' = a 6 juegos, 'sets' = 2 de 3 sets (el 3º es súper muerte súbita).
+   vg, vo, vq, vs, vfi = 1 si esa fase se juega con ventaja (0 = sin ventaja). */
+const FMT_MODOS = { pro: 'A 8 juegos', p6: 'A 6 juegos', sets: '2 de 3 sets (3º súper muerte)' };
+const FASES_FMT = ['g', 'o', 'q', 's', 'fi'];
+const TIT_FASE = { g: 'Grupos', o: 'Octavos', q: 'Cuartos', s: 'Semifinales', fi: 'Final' };
+function normFmt(f) {
+    f = (f && typeof f === 'object') ? f : {};
+    const m = x => FMT_MODOS[x] ? x : null;
+    let leg = m(f.f) || 'pro', r = { g: m(f.g) || 'pro' };     // 'f' era el formato único de la fase final
+    ['o', 'q', 's', 'fi'].forEach(k => { r[k] = m(f[k]) || leg; });
+    FASES_FMT.forEach(k => { r['v' + k] = (f['v' + k] === 1 || f['v' + k] === true) ? 1 : 0; });
+    return r;
+}
+function faseDeKey(k) { return isGroupKey(k) ? 'g' : ({ O: 'o', Q: 'q', S: 's', F: 'fi' })[k[0]] || 'fi'; }
+function fmtTxt(F, fase) { return `${FMT_MODOS[F[fase]]}${F['v' + fase] ? ', con ventaja' : ', sin ventaja'}`; }
+function hasPhaseScores(cat, fase) { return Object.keys(db.scores[cat]).some(k => db.scores[cat][k] && faseDeKey(k) === fase); }
+function clearPhaseScores(cat, fase) { Object.keys(db.scores[cat]).forEach(k => { if (faseDeKey(k) === fase) delete db.scores[cat][k]; }); }
+function esBaja(cat, slot) { let b = (db.bajas && db.bajas[cat]) || {}; return b[slot] === 'sup' || b[slot] === 'wo' ? b[slot] : ''; }
 
 /* Tamaños de grupo equilibrados. N par: los grandes primero. N impar: los de tamaño par primero. */
 function getGroupSizes(N, G) {
@@ -335,7 +353,7 @@ function loadDB() {
         ['torneos', 'archivo'].forEach(k => { if (d[k] && typeof d[k] === 'object') base[k] = d[k]; });
         if (typeof d.activo === 'string') base.activo = d.activo;
         if (d.prog) { let cats = Object.assign({}, base.prog.cats, d.prog.cats || {}); Object.assign(base.prog, d.prog); base.prog.cats = cats; }
-        ['jugadores', 'scores', 'config', 'manual', 'layout', 'datos', 'siembra', 'horario', 'vinc'].forEach(f => {
+        ['jugadores', 'scores', 'config', 'manual', 'layout', 'datos', 'siembra', 'horario', 'vinc', 'bajas'].forEach(f => {
             categorias.forEach(c => { if (d[f] && d[f][c] !== undefined && d[f][c] !== null) base[f][c] = d[f][c]; });
         });
         categorias.forEach(c => {
@@ -347,9 +365,9 @@ function loadDB() {
             // Datos guardados antes de existir la opción de formato: se deduce de los marcadores
             if (!d.formato || !d.formato[c]) {
                 let ks = Object.keys(base.scores[c]).filter(k => base.scores[c][k]);
-                base.formato[c] = { g: ks.some(k => k.startsWith('P_') && base.scores[c][k].includes(',')) ? 'sets' : 'pro',
-                                    f: ks.some(k => !k.startsWith('P_')) ? 'sets' : 'pro' };
-            } else base.formato[c] = { g: d.formato[c].g === 'sets' ? 'sets' : 'pro', f: d.formato[c].f === 'sets' ? 'sets' : 'pro' };
+                base.formato[c] = normFmt({ g: ks.some(k => k.startsWith('P_') && base.scores[c][k].includes(',')) ? 'sets' : 'pro',
+                                    f: ks.some(k => !k.startsWith('P_')) ? 'sets' : 'pro' });
+            } else base.formato[c] = normFmt(d.formato[c]);
         });
         return base;
     }
@@ -382,12 +400,12 @@ let db = nube.activa ? initDB() : loadDB();
 
 /* Estructura en la nube:  publico/ (nombres, marcadores, formato)  y  privado/ (datos de contacto) */
 function toRemote(d) {
-    let pub = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, siembra: {}, horario: {}, vinc: {}, prog: d.prog, torneo: d.ajustes.torneo || '', torneos: d.torneos, activo: d.activo };
+    let pub = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, siembra: {}, horario: {}, vinc: {}, bajas: {}, prog: d.prog, torneo: d.ajustes.torneo || '', torneos: d.torneos, activo: d.activo };
     categorias.forEach(c => {
         pub.jugadores[c] = {};
         d.jugadores[c].forEach((n, i) => { if (n) pub.jugadores[c][i] = n; });
         pub.scores[c] = d.scores[c]; pub.config[c] = d.config[c]; pub.manual[c] = d.manual[c];
-        pub.layout[c] = d.layout[c]; pub.formato[c] = d.formato[c]; pub.siembra[c] = d.siembra[c]; pub.horario[c] = d.horario[c]; pub.vinc[c] = d.vinc[c];
+        pub.layout[c] = d.layout[c]; pub.formato[c] = d.formato[c]; pub.siembra[c] = d.siembra[c]; pub.horario[c] = d.horario[c]; pub.vinc[c] = d.vinc[c]; pub.bajas[c] = d.bajas[c];
     });
     pub.archivo = {}; let adat = {};
     Object.keys(d.archivo || {}).forEach(id => { let a = d.archivo[id]; if (a && a.pub) { pub.archivo[id] = a.pub; if (a.datos) adat[id] = a.datos; } });
@@ -414,7 +432,9 @@ function fromRemote(pub, priv) {
         if (obj(pub.config)[c]) d.config[c] = String(pub.config[c]);
         let ly = obj(pub.layout)[c]; d.layout[c] = (ly === undefined || ly === null) ? null : ly;
         let f = obj(obj(pub.formato)[c]);
-        d.formato[c] = { g: f.g === 'sets' ? 'sets' : 'pro', f: f.f === 'sets' ? 'sets' : 'pro' };
+        d.formato[c] = normFmt(f);
+        let bj = obj(obj(pub.bajas)[c]);
+        Object.keys(bj).forEach(k => { if (bj[k] === 'sup' || bj[k] === 'wo') d.bajas[c][k] = bj[k]; });
         let sb = obj(pub.siembra)[c];
         if (sb && typeof sb === 'object') { let arr = Object.keys(sb).sort((a, b) => a - b).map(k => parseInt(sb[k])); if (arr.length && arr.every(x => !isNaN(x))) d.siembra[c] = arr; }
         let vc = obj(obj(pub.vinc)[c]);
@@ -500,7 +520,7 @@ function aplicarRemoto() {
 
 function firma(cat) {
     let info = computeCat(cat);
-    return JSON.stringify([getActivos(db, cat).map(p => p.slot), db.config[cat], db.formato[cat], info.numGroups,
+    return JSON.stringify([getActivos(db, cat).map(p => p.slot), db.config[cat], db.formato[cat], db.bajas[cat], info.numGroups,
         hasScores(cat) && db.layout[cat] != null && db.layout[cat] !== info.numGroups, nube.rol, db.horario[cat], catNombre(cat), [0, 1, 2, 3, 4, 5, 6, 7].map(i => gNombre(cat, i))]);
 }
 
@@ -514,6 +534,7 @@ function refrescarUI(forzar) {
         autoAlto(cont);
         cont.querySelectorAll('.match-container').forEach(mc => {
             let val = db.scores[act][mc.dataset.key] || '';
+            mc.querySelectorAll('.wo-select').forEach(el => { if (el !== ae) el.value = esWO(val) ? val.trim().slice(3) : ''; });
             if (mc.dataset.sets === 'true') {
                 let sets = getSetScores(val);
                 mc.querySelectorAll('.dyn-part').forEach(el => { if (el !== ae) el.value = sets[parseInt(el.dataset.set) - 1][parseInt(el.dataset.p) - 1]; });
@@ -777,6 +798,23 @@ function parseGames(texto) {
     return { v1: 0, v2: 0, w: 0 };
 }
 
+/* Partido a 6 juegos: 6-0 a 6-4, 7-5 o 7-6 (el 6-6 se define con muerte súbita) */
+function parseP6(texto) {
+    let m = (texto || '').match(/(\d+)\s*-\s*(\d+)/);
+    if (m) {
+        let a = parseInt(m[1]), b = parseInt(m[2]);
+        if (regSet(a, b)) return { v1: a, v2: b, w: 1 };
+        if (regSet(b, a)) return { v1: a, v2: b, w: 2 };
+    }
+    return { v1: 0, v2: 0, w: 0 };
+}
+/* Marcador según el formato. 'WO:1' / 'WO:2' = default (no se presentó el otro): gana el 1 o el 2, sin juegos ni sets */
+function esWO(texto) { return /^\s*WO:[12]\s*$/.test(texto || ''); }
+function parseModo(modo, texto) {
+    if (esWO(texto)) return { v1: 0, v2: 0, w: parseInt(texto.trim().slice(3)), g1: 0, g2: 0, wo: true };
+    return modo === 'sets' ? parseSets(texto) : (modo === 'p6' ? parseP6(texto) : parseGames(texto));
+}
+
 /* Para mostrar en las casillas (acepta marcadores a medio capturar) */
 function getGameScores(val) {
     let m = (val || '').match(/(\d*)\s*-\s*(\d*)/);
@@ -792,42 +830,54 @@ function getSetScores(val) {
 }
 
 /* ---------- Cálculo de grupos y tablas ---------- */
-function calcGroup(g, cat, isSets) {
-    let stats = g.map(p => ({ nombre: p.name, slot: p.slot, pj: 0, pg: 0, wg: 0, lg: 0, pct: 0, jgw: 0, jgl: 0, pct_j: 0 }));
-    let beat = {}, played = 0;
+/* Los jugadores dados de baja nunca clasifican (quedan al final de la tabla).
+   Baja 'sup': se suprime: ninguno de sus partidos cuenta, así nadie gana ni pierde por él y los porcentajes de los demás no cambian.
+   Baja 'wo': sus partidos ya jugados se conservan; los pendientes se dan por default al rival (suma partido ganado,
+   pero NO suma juegos ni sets, para no alterar los porcentajes). */
+function calcGroup(g, cat, modo) {
+    let isSets = modo === 'sets';
+    let stats = g.map(p => ({ nombre: p.name, slot: p.slot, baja: esBaja(cat, p.slot), pj: 0, pg: 0, pjr: 0, pgr: 0, wg: 0, lg: 0, pct: 0, jgw: 0, jgl: 0, pct_j: 0 }));
+    let beat = {}, played = 0, total = 0;
     for (let i = 0; i < g.length; i++) {
         for (let j = i + 1; j < g.length; j++) {
-            let score = db.scores[cat][pairKey(g[i], g[j])];
-            let res = isSets ? parseSets(score) : parseGames(score);
+            let a = stats[i], b = stats[j];
+            if (a.baja === 'sup' || b.baja === 'sup' || (a.baja && b.baja)) continue;
+            total++;
+            let res = parseModo(modo, db.scores[cat][pairKey(g[i], g[j])]);
+            if (res.w === 0 && (a.baja || b.baja)) res = { v1: 0, v2: 0, w: a.baja ? 2 : 1, g1: 0, g2: 0, wo: true };   // default por baja
             if (res.w === 0) continue;
             played++;
-            stats[i].pj++; stats[j].pj++;
-            stats[i].wg += res.v1; stats[i].lg += res.v2; stats[j].wg += res.v2; stats[j].lg += res.v1;
-            if (isSets) { stats[i].jgw += res.g1; stats[i].jgl += res.g2; stats[j].jgw += res.g2; stats[j].jgl += res.g1; }
-            if (res.w === 1) { stats[i].pg++; beat[`${g[i].slot}>${g[j].slot}`] = true; }
-            else { stats[j].pg++; beat[`${g[j].slot}>${g[i].slot}`] = true; }
+            a.pj++; b.pj++;
+            if (!res.wo) {
+                a.pjr++; b.pjr++;
+                a.wg += res.v1; a.lg += res.v2; b.wg += res.v2; b.lg += res.v1;
+                if (isSets) { a.jgw += res.g1; a.jgl += res.g2; b.jgw += res.g2; b.jgl += res.g1; }
+            }
+            if (res.w === 1) { a.pg++; if (!res.wo) a.pgr++; beat[`${g[i].slot}>${g[j].slot}`] = true; }
+            else { b.pg++; if (!res.wo) b.pgr++; beat[`${g[j].slot}>${g[i].slot}`] = true; }
         }
     }
     stats.forEach(s => {
         let t = s.wg + s.lg; s.pct = t > 0 ? s.wg / t * 100 : 0;
         let tj = s.jgw + s.jgl; s.pct_j = tj > 0 ? s.jgw / tj * 100 : 0;
     });
-    // Criterios: PG, % sets/juegos, (% juegos), enfrentamiento directo, orden de inscripción
+    // Criterios: (bajas al final), PG, % sets/juegos, (% juegos), enfrentamiento directo, orden de inscripción
     stats.sort((a, b) =>
+        (a.baja ? 1 : 0) - (b.baja ? 1 : 0) ||
         b.pg - a.pg || b.pct - a.pct || (isSets ? b.pct_j - a.pct_j : 0) ||
         (beat[`${a.slot}>${b.slot}`] ? -1 : (beat[`${b.slot}>${a.slot}`] ? 1 : 0)) ||
         a.slot - b.slot);
-    return { stats, played, total: g.length * (g.length - 1) / 2 };
+    return { stats, played, total };
 }
 
 function computeCat(cat) {
     let activos = getActivos(db, cat), N = activos.length;
-    if (N < 3) return { N, numGroups: 0, groups: [], tables: [], setsG: false, setsF: false };
+    let fmt = normFmt(db.formato[cat]);
+    if (N < 3) return { N, numGroups: 0, groups: [], tables: [], setsG: false, setsF: false, fmt };
     let numGroups = getNumGroups(N, db.config[cat] || 'auto');
     let groups = splitGroups(activos, numGroups);
-    let fmt = db.formato[cat] || { g: 'pro', f: 'pro' };
-    let tables = groups.map(g => calcGroup(g, cat, fmt.g === 'sets'));
-    return { N, numGroups, groups, tables, setsG: fmt.g === 'sets', setsF: fmt.f === 'sets' };
+    let tables = groups.map(g => calcGroup(g, cat, fmt.g));
+    return { N, numGroups, groups, tables, setsG: fmt.g === 'sets', setsF: fmt.fi === 'sets', fmt };
 }
 
 /* ---------- Definición de la fase final ---------- */
@@ -871,8 +921,10 @@ function computeSeeds(cat, info) {
     if (!usaSiembra(G) || info.tables.some(t => t.played === 0)) return null;
     let N = G >= 5 ? 16 : 8, half = N / 2, niveles = [];
     info.tables.forEach((t, gi) => t.stats.forEach((st, pos) => {
+        if (st.baja) return;   // los jugadores dados de baja no se siembran
+        // % de partidos ganados: solo con partidos realmente jugados (los defaults no inflan el porcentaje)
         (niveles[pos] = niveles[pos] || []).push({ slot: st.slot, nombre: st.nombre, gi, pos, pj: st.pj, pg: st.pg,
-            pctP: st.pj ? st.pg / st.pj * 100 : 0, pct: st.pct, pct_j: st.pct_j });
+            pctP: st.pjr ? st.pgr / st.pjr * 100 : 0, pct: st.pct, pct_j: st.pct_j });
     }));
     const cmp = (a, b) => b.pctP - a.pctP || b.pct - a.pct || (info.setsG ? b.pct_j - a.pct_j : 0) || a.slot - b.slot;
     let q = [];
@@ -919,7 +971,7 @@ function srcLabel(src, cat) {
 function getCandidates(info) {
     let c = [];
     info.tables.forEach((t, gi) => t.stats.forEach((s, pos) => {
-        if (pos >= 2) c.push({ slot: s.slot, nombre: s.nombre, pos, gi, pg: s.pg, pct: s.pct });
+        if (pos >= 2 && !s.baja) c.push({ slot: s.slot, nombre: s.nombre, pos, gi, pg: s.pg, pct: s.pct });
     }));
     c.sort((a, b) => a.pos - b.pos || b.pct - a.pct || b.pg - a.pg || a.gi - b.gi);
     return c;
@@ -933,6 +985,7 @@ function resolveBracket(cat, info) {
         if (src.t === 'g') {
             let t = info.tables[src.g];
             if (!t || t.played === 0 || !t.stats[src.p]) return null;
+            if (t.stats[src.p].baja) return BYE;   // no hay suficientes jugadores activos en ese grupo
             return { slot: t.stats[src.p].slot, nombre: t.stats[src.p].nombre, prov: t.played < t.total };
         }
         if (src.t === 's') {
@@ -949,7 +1002,7 @@ function resolveBracket(cat, info) {
             else if (a.bye) { gana = b; w = 2; }       // sin rival: pasa directo
             else if (b.bye) { gana = a; w = 1; }
             else {
-                let res = info.setsF ? parseSets(db.scores[cat][key]) : parseGames(db.scores[cat][key]);
+                let res = parseModo(info.fmt[faseDeKey(key)], db.scores[cat][key]);
                 w = res.w; gana = w === 1 ? a : (w === 2 ? b : null);
             }
         }
@@ -1015,6 +1068,11 @@ function randSets() {
     return s.map(x => x.join('-')).join(', ');
 }
 
+function randP6() {
+    let l = Math.floor(Math.random() * 5);
+    return Math.random() > 0.5 ? `6-${l}` : `${l}-6`;
+}
+function randModo(m) { return m === 'sets' ? randSets() : (m === 'p6' ? randP6() : randGames()); }
 function randGames() {
     let l = Math.floor(Math.random() * 8);
     return Math.random() > 0.5 ? `8-${l}` : `${l}-8`;
@@ -1028,13 +1086,13 @@ function simularMarcadores() {
         info.groups.forEach(g => {
             for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) {
                 let key = pairKey(g[i], g[j]);
-                db.scores[cat][key] = info.setsG ? randSets() : randGames();
+                db.scores[cat][key] = randModo(info.fmt.g);
             }
         });
         // Mejores terceros: se asignan en orden de clasificación
         let cands = getCandidates(computeCat(cat));
         manualKeys(info.numGroups).forEach((k, i) => { if (cands[i]) db.manual[cat][k] = cands[i].slot; });
-        getBracket(info.numGroups).forEach(r => r.matches.forEach(mt => { db.scores[cat][mt[0]] = info.setsF ? randSets() : randGames(); }));
+        getBracket(info.numGroups).forEach(r => r.matches.forEach(mt => { db.scores[cat][mt[0]] = randModo(info.fmt[faseDeKey(mt[0])]); }));
         db.layout[cat] = info.numGroups;
     });
     saveDB();
@@ -1150,7 +1208,7 @@ function calendarioSugerido(anio) {
 }
 
 /* Conjunto de trabajo: lo que pertenece a un torneo concreto (inscripciones, marcadores, horarios, datos de contacto) */
-const CAMPOS_TRABAJO = ['jugadores', 'scores', 'config', 'manual', 'layout', 'formato', 'siembra', 'horario', 'datos', 'vinc'];
+const CAMPOS_TRABAJO = ['jugadores', 'scores', 'config', 'manual', 'layout', 'formato', 'siembra', 'horario', 'datos', 'vinc', 'bajas'];
 const CAMPOS_PROG = ['canchas', 'ini', 'fin', 'dur', 'desc', 'cats'];
 function copiarTrabajo(desde) {
     CAMPOS_TRABAJO.forEach(k => { db[k] = desde[k]; });
@@ -1159,7 +1217,7 @@ function copiarTrabajo(desde) {
 function vaciarTrabajo() { copiarTrabajo(initDB()); }
 function fotoTrabajo() {
     let r = toRemote(db), pub = { prog: {} };
-    ['jugadores', 'scores', 'config', 'manual', 'layout', 'formato', 'siembra', 'horario', 'vinc'].forEach(k => { pub[k] = r.publico[k]; });
+    ['jugadores', 'scores', 'config', 'manual', 'layout', 'formato', 'siembra', 'horario', 'vinc', 'bajas'].forEach(k => { pub[k] = r.publico[k]; });
     CAMPOS_PROG.forEach(k => { pub.prog[k] = db.prog[k]; });
     return JSON.parse(JSON.stringify({ pub, datos: r.privado.datos }));
 }
@@ -2551,6 +2609,7 @@ function todosLosPartidos() {
         if (info.N < 3) return;
         info.groups.forEach((g, gi) => {
             jornadas(g).forEach((jor, r) => jor.forEach(([a, b]) => {
+                if (esBaja(cat, a.slot) || esBaja(cat, b.slot)) return;   // con una baja no hay partido que programar
                 let key = pairKey(a, b);
                 lista.push({ cat, key, fase: `Grupo ${gNombre(cat, gi)}`, j1: a.name, j2: b.name, jug: [a.slot, b.slot], ronda: r, gi, score: db.scores[cat][key] || '', dep: null });
             }));
@@ -2859,8 +2918,11 @@ function mensajeGrupo(cat, gi) {
     L.push('', 'RESULTADOS');
     for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) {
         let sc = db.scores[cat][pairKey(g[i], g[j])] || '';
-        let res = info.setsG ? parseSets(sc) : parseGames(sc);
-        if (res.w === 0) L.push(`• ${g[i].name} vs ${g[j].name}: pendiente`);
+        let res = parseModo(info.fmt.g, sc);
+        if (esBaja(cat, g[i].slot) === 'sup' || esBaja(cat, g[j].slot) === 'sup') continue;
+        if (res.wo) L.push(`• ${g[i].name} vs ${g[j].name}: default (gana ${res.w === 1 ? g[i].name : g[j].name})`);
+        else if (res.w === 0 && (esBaja(cat, g[i].slot) || esBaja(cat, g[j].slot))) L.push(`• ${g[i].name} vs ${g[j].name}: default (gana ${esBaja(cat, g[i].slot) ? g[j].name : g[i].name})`);
+        else if (res.w === 0) L.push(`• ${g[i].name} vs ${g[j].name}: pendiente`);
         else if (info.setsG) L.push(`• ${g[i].name} vs ${g[j].name}: ${sc.split(',').map(x => x.trim()).filter(x => x).join(', ')}${res.w === 1 ? '' : ' (gana ' + g[j].name + ')'}`);
         else L.push(`• ${g[i].name} ${res.v1}-${res.v2} ${g[j].name}`);
     }
@@ -2869,7 +2931,7 @@ function mensajeGrupo(cat, gi) {
         let det = info.setsG
             ? `PG ${s.pg}, sets ${s.wg}-${s.lg}, juegos ${s.jgw}-${s.jgl}`
             : `PG ${s.pg}, juegos ${s.wg}-${s.lg} (${s.pct.toFixed(1)}%)`;
-        L.push(`${i + 1}. ${s.nombre} - ${det}`);
+        L.push(s.baja ? `- ${s.nombre} - BAJA` : `${i + 1}. ${s.nombre} - ${det}`);
     });
     return L.join('\n');
 }
@@ -2977,7 +3039,14 @@ function setBoxes(sets) {
 function gameBox(p, v) { return `<input type="text" inputmode="numeric" maxlength="2" class="score-box game dyn-part" data-p="${p}" value="${esc(v)}">`; }
 
 /* Partido en dos renglones: 3 casillas por jugador (sets) o 1 casilla (8 juegos) */
-function matchHtml(cat, key, title, side1Html, side2Html, bg, isSets) {
+/* Default (WO): quién gana cuando el otro no se presentó. Solo administradores. */
+function woSel(cat, key, nombres) {
+    let v = (db.scores[cat][key] || ''), cur = esWO(v) ? v.trim().slice(3) : '';
+    let n1 = nombres ? nombres[0] : 'el de arriba', n2 = nombres ? nombres[1] : 'el de abajo';
+    return `<select class="wo-select solo-admin text-[10px] border border-gray-300 rounded bg-gray-50 mt-1 max-w-full" data-cat="${cat}" data-key="${key}" title="Si un jugador no se presentó: marca quién gana por default. No suma juegos ni sets.">
+        <option value="">Default (WO): ninguno</option><option value="1" ${cur === '1' ? 'selected' : ''}>Default: gana ${esc(n1)}</option><option value="2" ${cur === '2' ? 'selected' : ''}>Default: gana ${esc(n2)}</option></select>`;
+}
+function matchHtml(cat, key, title, side1Html, side2Html, bg, isSets, nombresWO) {
     let boxes;
     if (isSets) boxes = setBoxes(getSetScores(db.scores[cat][key] || ''));
     else { let sc = getGameScores(db.scores[cat][key] || ''); boxes = [gameBox(1, sc[0]), gameBox(2, sc[1])]; }
@@ -2991,6 +3060,7 @@ function matchHtml(cat, key, title, side1Html, side2Html, bg, isSets) {
             <div class="flex-1 min-w-0 text-left">${side2Html}</div>
             <div class="flex gap-1 justify-end">${boxes[1]}</div>
         </div>
+        <div class="text-center">${woSel(cat, key, nombresWO)}</div>
     </div>`;
 }
 
@@ -3008,10 +3078,16 @@ function buildCategoriasDOM(cat) {
         `<option value="${v}" ${cfg === v ? 'selected' : ''}>${v === 'auto' ? 'Automático' : v + (v === '1' ? ' Grupo' : ' Grupos')}</option>`).join('');
     let nota = (cfg !== 'auto' && N >= 3 && numGroups !== parseInt(cfg)) ? `<span class="text-xs text-amber-700 ml-2">(se usan ${numGroups}: mínimo 3 jugadores por grupo)</span>` : '';
 
-    let fmt = db.formato[cat];
-    const fmtSel = fase => `<select class="p-1 border rounded text-sm format-select bg-gray-50 shadow-sm" data-cat="${cat}" data-fase="${fase}">
-        <option value="pro" ${fmt[fase] === 'pro' ? 'selected' : ''}>8 juegos</option>
-        <option value="sets" ${fmt[fase] === 'sets' ? 'selected' : ''}>2 de 3 sets</option></select>`;
+    let F = info.fmt;
+    let rondas = getBracket(numGroups);
+    let fasesVis = ['g'].concat(rondas.map(r => ({ Octavos: 'o', Cuartos: 'q', Semifinales: 's', Final: 'fi' })[r.title]));
+    const fmtFila = fase => `<div class="flex flex-wrap items-center gap-2 text-sm">
+            <span class="w-28 font-semibold text-gray-700">${TIT_FASE[fase]}</span>
+            <select class="fmt-modo p-1 border rounded text-sm bg-gray-50" data-cat="${cat}" data-fase="${fase}">${Object.keys(FMT_MODOS).map(k => `<option value="${k}" ${F[fase] === k ? 'selected' : ''}>${FMT_MODOS[k]}</option>`).join('')}</select>
+            <label class="text-xs text-gray-700 flex items-center gap-1"><input type="checkbox" class="fmt-ad" data-cat="${cat}" data-fase="${fase}" ${F['v' + fase] ? 'checked' : ''}> con ventaja</label></div>`;
+    const fmtTodas = fasesVis.length > 2 ? `<div class="flex flex-wrap items-center gap-2 text-sm border-t pt-2 mt-1"><span class="w-28 font-semibold text-gray-500">Fases finales</span>
+            <select class="fmt-todas p-1 border rounded text-sm bg-gray-50" data-cat="${cat}"><option value="">Poner el mismo formato a todas…</option>${Object.keys(FMT_MODOS).map(k => `<option value="${k}">${FMT_MODOS[k]}</option>`).join('')}</select></div>` : '';
+    let fmtResumen = fasesVis.map(f => `${TIT_FASE[f]}: ${fmtTxt(F, f)}`).join(' · ');
 
     let headerHtml = `<div class="flex flex-col md:flex-row justify-between items-center bg-white p-3 rounded shadow mb-4 border-l-4 border-green-600">
         <h2 class="text-xl font-bold text-green-800">${esc(catEtiqueta(cat))}${catModo(cat) === 'D' ? ' (dobles)' : ''} - <span class="text-indigo-600">${N} Inscritos</span></h2>
@@ -3019,11 +3095,16 @@ function buildCategoriasDOM(cat) {
             <button class="ren-grupos text-xs bg-indigo-50 text-indigo-800 border border-indigo-200 px-2 py-1 rounded hover:bg-indigo-100 font-bold" data-cat="${cat}" title="Cambiar cómo se llaman los grupos de esta categoría">✏️ Nombres de grupos</button>
             <label class="text-sm font-semibold text-gray-700">Grupos:</label>
             <select class="p-1 border rounded text-sm config-select bg-gray-50 shadow-sm" data-cat="${cat}">${opts}</select>${nota}
-            <label class="text-sm font-semibold text-gray-700 ml-2" title="Formato de los partidos de grupo">Partidos de grupo:</label>${fmtSel('g')}
-            <label class="text-sm font-semibold text-gray-700 ml-2" title="Formato de los partidos de fase final">Fase final:</label>${fmtSel('f')}
             <button class="reset-cat-btn text-xs bg-red-100 text-red-700 border border-red-300 px-2 py-1 rounded hover:bg-red-200" data-cat="${cat}">Borrar marcadores</button>
         </div>
-    </div>`;
+    </div>
+    <p class="text-xs text-gray-600 text-center -mt-2 mb-3">🎾 ${esc(fmtResumen)}</p>
+    <details class="solo-admin bg-white border border-gray-200 rounded shadow-sm mb-4 px-3 py-2">
+        <summary class="cursor-pointer text-sm font-bold text-green-800">⚙️ Formato de los partidos por fase (juegos o sets, con o sin ventaja)</summary>
+        <div class="flex flex-col gap-2 mt-2">${fasesVis.map(fmtFila).join('')}${fmtTodas}
+            <p class="text-xs text-gray-500">La ventaja es informativa: se muestra en el cuadro y en los mensajes; el marcador se captura igual. Al cambiar el modo de una fase se borran los marcadores ya capturados de esa fase.</p>
+            <p class="text-xs text-gray-500"><b>Jugadores que no se presentan:</b> en la tabla de cada grupo, columna «Estado». <i>Baja: suprimir</i> quita al jugador y todos sus partidos de la tabla (nadie gana ni pierde por él y los porcentajes de los demás no cambian; es lo recomendable si faltó desde el inicio). <i>Baja: default a rivales</i> conserva lo ya jugado y da por ganados los partidos pendientes, sin sumar juegos ni sets. Un jugador de baja nunca clasifica. Para un solo partido, usa «Default (WO)» debajo del marcador.</p></div>
+    </details>`;
 
     if (N < 3) {
         container.innerHTML = headerHtml + `<div class="text-center p-10 bg-white rounded shadow text-gray-500 border border-gray-200">${puedeEditar() ? 'Registra al menos 3 jugadores.' : 'Esta categoría todavía no tiene jugadores registrados.'}</div>`;
@@ -3057,11 +3138,15 @@ function buildCategoriasDOM(cat) {
         for (let i = 0; i < g.length; i++) {
             for (let j = i + 1; j < g.length; j++) {
                 let key = pairKey(g[i], g[j]);
+                let bi = esBaja(cat, g[i].slot), bj = esBaja(cat, g[j].slot);
+                let apagado = (bi || bj) ? ' opacity-60' : '';
+                let notaBaja = (bi === 'sup' || bj === 'sup') ? 'Baja: este partido no cuenta' : ((bi || bj) ? 'Baja: default al rival si no se jugó' : '');
                 if (info.setsG) {
-                    html += matchHtml(cat, key, '', nameInput(cat, g[i]), nameInput(cat, g[j]), 'bg-gray-50', true);
+                    html += matchHtml(cat, key, notaBaja, nameInput(cat, g[i]), nameInput(cat, g[j]), 'bg-gray-50' + apagado, true, [g[i].name, g[j].name]);
                 } else {
                     let sc = getGameScores(db.scores[cat][key] || '');
-                    html += `<div class="flex flex-wrap justify-between items-center bg-white border border-gray-300 p-2 rounded shadow-sm match-container" data-cat="${cat}" data-key="${key}" data-sets="false">
+                    html += `<div class="flex flex-wrap justify-between items-center bg-white border border-gray-300 p-2 rounded shadow-sm match-container${apagado}" data-cat="${cat}" data-key="${key}" data-sets="false">
+                        ${notaBaja ? `<div class="w-full text-[10px] text-center text-red-600 font-bold mb-1">${notaBaja}</div>` : ''}
                         ${horarioTxt(cat, key) ? `<div class="w-full text-[10px] text-center text-gray-500 mb-1">${esc(horarioTxt(cat, key))}</div>` : ''}
                         <div class="flex-1 min-w-0 pr-2">${nameInput(cat, g[i], 'text-right')}</div>
                         <div class="flex justify-center items-center gap-1">
@@ -3070,6 +3155,7 @@ function buildCategoriasDOM(cat) {
                             ${gameBox(2, sc[1])}
                         </div>
                         <div class="flex-1 min-w-0 pl-2">${nameInput(cat, g[j], 'text-left')}</div>
+                        <div class="w-full text-center">${woSel(cat, key, [g[i].name, g[j].name])}</div>
                     </div>`;
                 }
             }
@@ -3087,6 +3173,7 @@ function buildCategoriasDOM(cat) {
                             <th class="p-2 border" title="${u} Perdidos">${a}P</th>
                             <th class="p-2 border">% ${a}G</th>
                             ${info.setsG ? '<th class="p-2 border bg-blue-50" title="Juegos Ganados">JG</th><th class="p-2 border bg-blue-50" title="Juegos Perdidos">JP</th><th class="p-2 border bg-blue-100">% JG</th>' : ''}
+                            <th class="p-2 border solo-admin" title="Si un jugador no se presenta o se retira">Estado</th>
                         </tr></thead>
                         <tbody id="std_${cat}_${GROUP_NAMES[gIdx]}"></tbody>
                     </table>
@@ -3109,14 +3196,14 @@ function buildCategoriasDOM(cat) {
         rounds.forEach((r, ri) => {
             let isFinal = ri === rounds.length - 1;
             let matchesHtml = r.matches.map(([key, s1, s2]) =>
-                matchHtml(cat, key, key, bracketSideHtml(cat, key, 1, s1), bracketSideHtml(cat, key, 2, s2), 'bg-white', info.setsF)).join('');
+                matchHtml(cat, key, key, bracketSideHtml(cat, key, 1, s1), bracketSideHtml(cat, key, 2, s2), 'bg-white', F[faseDeKey(key)] === 'sets')).join('');
             if (isFinal) {
-                html += `<div class="flex-1 min-w-0 flex flex-col justify-center"><h4 class="font-bold text-center bg-yellow-100 text-yellow-800 py-1 rounded-t">Final</h4>
+                html += `<div class="flex-1 min-w-0 flex flex-col justify-center"><h4 class="font-bold text-center bg-yellow-100 text-yellow-800 py-1 rounded-t">Final<span class="block text-[10px] font-normal">${esc(fmtTxt(F, 'fi'))}</span></h4>
                     <div class="bg-yellow-50 p-2 rounded-b border-2 border-yellow-200">${matchesHtml}
                         <div class="text-center mt-2 text-xl font-bold text-green-700">🏆 <span id="win_f_${cat}">-</span></div>
                     </div></div>`;
             } else {
-                html += `<div class="flex-1 min-w-0 flex flex-col ${ri === 0 ? 'gap-2' : 'justify-around'}"><h4 class="font-bold text-center bg-gray-100 py-1 rounded">${r.title}</h4>${matchesHtml}</div>`;
+                html += `<div class="flex-1 min-w-0 flex flex-col ${ri === 0 ? 'gap-2' : 'justify-around'}"><h4 class="font-bold text-center bg-gray-100 py-1 rounded">${r.title}<span class="block text-[10px] font-normal text-gray-500">${esc(fmtTxt(F, faseDeKey(r.matches[0][0])))}</span></h4>${matchesHtml}</div>`;
             }
         });
         html += `</div></div>`;
@@ -3146,11 +3233,16 @@ function updateStandings(cat) {
         let tbody = document.getElementById(`std_${cat}_${GROUP_NAMES[gIdx]}`);
         if (!tbody) return;
         tbody.innerHTML = t.stats.map((j, i) => {
-            let clasifica = t.played > 0 && (numGroups === 1 ? i === 0 : (sembrados ? sembrados.has(j.slot) : i < 2));
+            let clasifica = !j.baja && t.played > 0 && (numGroups === 1 ? i === 0 : (sembrados ? sembrados.has(j.slot) : i < 2));
+            let estado = `<td class="p-1 solo-admin"><select class="baja-select text-[10px] border border-gray-300 rounded bg-gray-50" data-cat="${cat}" data-slot="${j.slot}" title="Baja: el jugador no se presentó o se retiró">
+                <option value="">Activo</option><option value="sup" ${j.baja === 'sup' ? 'selected' : ''}>Baja: suprimir de la tabla</option><option value="wo" ${j.baja === 'wo' ? 'selected' : ''}>Baja: default a rivales</option></select></td>`;
+            if (j.baja) return `<tr class="bg-gray-100 text-gray-400 border-b"><td class="p-1">—</td><td class="p-1 text-left leading-tight whitespace-normal break-words line-through" style="min-width:110px;max-width:260px" title="${esc(j.nombre)}">${esc(j.nombre)} <span class="no-underline text-[10px] font-bold text-red-600" style="text-decoration:none;display:inline-block">BAJA${j.baja === 'sup' ? ' (suprimido)' : ''}</span></td>
+                <td class="p-1" colspan="${info.setsG ? 8 : 5}">${j.baja === 'sup' ? 'sus partidos no cuentan' : 'default a sus rivales'}</td>${estado}</tr>`;
             return `<tr class="${clasifica ? 'win-row' : 'bg-white'} border-b">
                 <td class="p-1">${i + 1}</td><td class="p-1 text-left font-medium whitespace-normal break-words leading-tight text-gray-700" style="min-width:110px;max-width:260px" title="${esc(j.nombre)}">${esc(j.nombre)}</td>
                 <td class="p-1">${j.pj}</td><td class="p-1">${j.pg}</td><td class="p-1">${j.wg}</td><td class="p-1">${j.lg}</td><td class="p-1 font-bold text-green-800">${j.pct.toFixed(1)}%</td>
                 ${info.setsG ? `<td class="p-1 bg-blue-50/50 text-gray-600">${j.jgw}</td><td class="p-1 bg-blue-50/50 text-gray-600">${j.jgl}</td><td class="p-1 font-bold text-blue-800 bg-blue-50/50">${j.pct_j.toFixed(1)}%</td>` : ''}
+                ${estado}
             </tr>`;
         }).join('');
     });
@@ -3260,7 +3352,7 @@ document.addEventListener('input', e => {
             while (sets.length && sets[sets.length - 1] === '') sets.pop();
             val = sets.join(', ');
         }
-        if (val) db.scores[cat][key] = val; else delete db.scores[cat][key];
+        if (val) { db.scores[cat][key] = val; let w = container.querySelector('.wo-select'); if (w) w.value = ''; } else delete db.scores[cat][key];
         if (db.layout[cat] == null && val) db.layout[cat] = computeCat(cat).numGroups;
         saveDB(); updateStandings(cat);
     }
@@ -3342,16 +3434,35 @@ document.addEventListener('change', e => {
         }
         db.config[cat] = t.value;
         saveDB(); buildCategoriasDOM(cat); updateStandings(cat);
-    } else if (t.classList.contains('format-select')) {
-        let cat = t.dataset.cat, fase = t.dataset.fase;
-        if (hasPhaseScores(cat, fase)) {
-            if (!confirm(`Al cambiar el formato se borrarán los marcadores ya capturados de ${fase === 'g' ? 'los grupos' : 'la fase final'} de esta categoría. ¿Continuar?`)) {
-                t.value = db.formato[cat][fase]; return;
-            }
-            clearPhaseScores(cat, fase);
+    } else if (t.classList.contains('fmt-modo') || t.classList.contains('fmt-todas')) {
+        let cat = t.dataset.cat, F = normFmt(db.formato[cat]);
+        let fases = t.classList.contains('fmt-todas') ? ['o', 'q', 's', 'fi'].filter(f => getBracket(computeCat(cat).numGroups).some(r => faseDeKey(r.matches[0][0]) === f)) : [t.dataset.fase];
+        let nuevo = FMT_MODOS[t.value] ? t.value : '';
+        if (!nuevo) return;
+        let cambian = fases.filter(f => F[f] !== nuevo);
+        if (cambian.some(f => hasPhaseScores(cat, f))) {
+            if (!confirm(`Al cambiar el formato se borrarán los marcadores ya capturados de: ${cambian.filter(f => hasPhaseScores(cat, f)).map(f => TIT_FASE[f]).join(', ')}. ¿Continuar?`)) { buildCategoriasDOM(cat); updateStandings(cat); return; }
         }
-        db.formato[cat][fase] = t.value === 'sets' ? 'sets' : 'pro';
+        cambian.forEach(f => { clearPhaseScores(cat, f); F[f] = nuevo; });
+        db.formato[cat] = F;
         saveDB(); buildCategoriasDOM(cat); updateStandings(cat);
+    } else if (t.classList.contains('fmt-ad')) {
+        let cat = t.dataset.cat, F = normFmt(db.formato[cat]);
+        F['v' + t.dataset.fase] = t.checked ? 1 : 0; db.formato[cat] = F;
+        saveDB(); buildCategoriasDOM(cat); updateStandings(cat);
+    } else if (t.classList.contains('baja-select')) {
+        let cat = t.dataset.cat, slot = parseInt(t.dataset.slot);
+        db.bajas[cat] = db.bajas[cat] || {};
+        if (t.value === 'sup' || t.value === 'wo') db.bajas[cat][slot] = t.value; else delete db.bajas[cat][slot];
+        saveDB(); buildCategoriasDOM(cat); updateStandings(cat);
+    } else if (t.classList.contains('wo-select')) {
+        let cat = t.dataset.cat, key = t.dataset.key, c = t.closest('.match-container');
+        if (t.value === '1' || t.value === '2') {
+            db.scores[cat][key] = 'WO:' + t.value;
+            if (c) c.querySelectorAll('.dyn-part').forEach(el => { el.value = ''; });
+            if (db.layout[cat] == null) db.layout[cat] = computeCat(cat).numGroups;
+        } else delete db.scores[cat][key];
+        saveDB(); updateStandings(cat);
     } else if (t.classList.contains('manual-select')) {
         let cat = t.dataset.cat;
         if (t.value === '') delete db.manual[cat][t.dataset.mkey];
