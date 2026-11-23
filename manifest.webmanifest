@@ -1,0 +1,22 @@
+{
+  "id": "/",
+  "name": "Torneos de Tenis",
+  "short_name": "Tenis",
+  "description": "Torneos de tenis: grupos, cuadros, marcadores en vivo, inscripciones y resultados.",
+  "lang": "es",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f3f4f6",
+  "theme_color": "#15803d",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Inscribirme a un torneo", "short_name": "Inscripción", "url": "/?torneos=1", "icons": [{ "src": "icon-192.png", "sizes": "192x192" }] },
+    { "name": "Registro de jugadores", "short_name": "Registro", "url": "/?alta=1", "icons": [{ "src": "icon-192.png", "sizes": "192x192" }] }
+  ]
+}

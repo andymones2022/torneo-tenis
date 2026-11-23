@@ -4,6 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Torneos de Tenis</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <meta name="theme-color" content="#15803d">
+    <meta name="application-name" content="Torneos de Tenis">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Tenis">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; }
@@ -69,6 +78,7 @@
  <button id="btn_Programacion" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Programacion')">📅 Programación</button>
         <button id="btn_Capturistas" class="solo-admin solo-nube tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Capturistas')">🔐 Capturistas <span id="badge_pend" class="bg-red-600 text-white text-xs font-bold rounded-full px-2" style="display:none"></span></button>
 <span id="tabs-cats" style="display:contents"></span>
+        <button id="btn_instalar" class="px-4 py-2 font-bold text-green-700 hover:text-green-900 transition" style="display:none" title="Instalar la app en tu teléfono o computadora">📲 Instalar app</button>
         <button id="btn_resumen" class="px-4 py-2 font-bold text-blue-700 hover:text-blue-900 transition" onclick="resumenPDF()" title="Hoja de resumen con campeones y finalistas de cada categoría (imprimir o guardar como PDF)">🧾 Resumen PDF</button>
     </div>
 
@@ -3657,6 +3667,30 @@ document.getElementById('cat-tabs').innerHTML = categorias.map(c => `<div id="ta
 pintarTabs();
 renderInscripciones();
 if (nube.activa) iniciarNube();
+</script>
+<div id="barra_offline" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:60;background:#92400e;color:#fff;font-size:13px;font-weight:bold;text-align:center;padding:6px 10px">
+    📴 Sin conexión: se muestran los últimos datos guardados. Los cambios en la nube se guardarán cuando vuelva el internet.</div>
+<script>
+/* PWA: instalación, funcionamiento sin internet y aviso de conexión */
+(function () {
+    var btn = document.getElementById('btn_instalar'), barra = document.getElementById('barra_offline'), evInst = null;
+    var standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+    var ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+    function conexion() { if (barra) barra.style.display = navigator.onLine === false ? 'block' : 'none'; }
+    window.addEventListener('online', conexion); window.addEventListener('offline', conexion); conexion();
+    window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); evInst = e; if (btn && !standalone) btn.style.display = ''; });
+    window.addEventListener('appinstalled', function () { evInst = null; if (btn) btn.style.display = 'none'; });
+    if (ios && !standalone && btn) btn.style.display = '';
+    if (btn) btn.addEventListener('click', function () {
+        if (evInst) { evInst.prompt(); evInst.userChoice.then(function () { evInst = null; btn.style.display = 'none'; }); }
+        else alert('Para instalar en iPhone o iPad: toca el botón Compartir de Safari y elige «Agregar a pantalla de inicio».');
+    });
+    if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+        window.addEventListener('load', function () {
+            navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (r) { document.documentElement.dataset.sw = 'ok'; r.update(); }, function () { document.documentElement.dataset.sw = 'error'; });
+        });
+    }
+})();
 </script>
 </body>
 </html>
