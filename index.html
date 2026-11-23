@@ -210,7 +210,7 @@ function readJSON(key) {
 
 /* ---------- Base de datos ---------- */
 function initDB() {
-    let base = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, datos: {}, siembra: {}, horario: {}, vinc: {}, bajas: {},
+    let base = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, datos: {}, siembra: {}, horario: {}, vinc: {}, bajas: {}, sembrado: {},
         prog: { canchas: 'Cancha 1\nCancha 2', f1: '', f2: '', ini: '08:00', fin: '20:00', dur: 90, desc: 0, cats: {}, dias: {} }, ajustes: { torneo: '', lada: '52' },
         torneos: {},   // calendario: id -> datos del torneo
         activo: '',    // id del torneo en operación (al que pertenecen inscripciones y marcadores)
@@ -227,6 +227,7 @@ function initDB() {
         base.siembra[c] = null;  // orden de siembra ajustado a mano (lista de slots) o null = automático
         base.datos[c] = {};      // slot -> { tel, edad, email, utr, clasif, catRec, notas }
         base.formato[c] = normFmt({});  // formato por fase (ver FMT_MODOS)
+        base.sembrado[c] = null;   // siembra por nivel: { orden:[slots], grupos:[[slots]], sd, crit }
         base.bajas[c] = {};      // slot -> 'sup' (se suprime de la tabla) | 'wo' (los partidos pendientes se dan por default al rival)
     });
     return base;
@@ -364,7 +365,7 @@ function loadDB() {
         ['torneos', 'archivo'].forEach(k => { if (d[k] && typeof d[k] === 'object') base[k] = d[k]; });
         if (typeof d.activo === 'string') base.activo = d.activo;
         if (d.prog) { let cats = Object.assign({}, base.prog.cats, d.prog.cats || {}); Object.assign(base.prog, d.prog); base.prog.cats = cats; }
-        ['jugadores', 'scores', 'config', 'manual', 'layout', 'datos', 'siembra', 'horario', 'vinc', 'bajas'].forEach(f => {
+        ['jugadores', 'scores', 'config', 'manual', 'layout', 'datos', 'siembra', 'horario', 'vinc', 'bajas', 'sembrado'].forEach(f => {
             categorias.forEach(c => { if (d[f] && d[f][c] !== undefined && d[f][c] !== null) base[f][c] = d[f][c]; });
         });
         categorias.forEach(c => {
@@ -411,12 +412,12 @@ let db = nube.activa ? initDB() : loadDB();
 
 /* Estructura en la nube:  publico/ (nombres, marcadores, formato)  y  privado/ (datos de contacto) */
 function toRemote(d) {
-    let pub = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, siembra: {}, horario: {}, vinc: {}, bajas: {}, prog: d.prog, torneo: d.ajustes.torneo || '', torneos: d.torneos, activo: d.activo };
+    let pub = { jugadores: {}, scores: {}, config: {}, manual: {}, layout: {}, formato: {}, siembra: {}, horario: {}, vinc: {}, bajas: {}, sembrado: {}, prog: d.prog, torneo: d.ajustes.torneo || '', torneos: d.torneos, activo: d.activo };
     categorias.forEach(c => {
         pub.jugadores[c] = {};
         d.jugadores[c].forEach((n, i) => { if (n) pub.jugadores[c][i] = n; });
         pub.scores[c] = d.scores[c]; pub.config[c] = d.config[c]; pub.manual[c] = d.manual[c];
-        pub.layout[c] = d.layout[c]; pub.formato[c] = d.formato[c]; pub.siembra[c] = d.siembra[c]; pub.horario[c] = d.horario[c]; pub.vinc[c] = d.vinc[c]; pub.bajas[c] = d.bajas[c];
+        pub.layout[c] = d.layout[c]; pub.formato[c] = d.formato[c]; pub.siembra[c] = d.siembra[c]; pub.horario[c] = d.horario[c]; pub.vinc[c] = d.vinc[c]; pub.bajas[c] = d.bajas[c]; pub.sembrado[c] = d.sembrado[c] || null;
     });
     pub.archivo = {}; let adat = {};
     Object.keys(d.archivo || {}).forEach(id => { let a = d.archivo[id]; if (a && a.pub) { pub.archivo[id] = a.pub; if (a.datos) adat[id] = a.datos; } });
@@ -444,6 +445,11 @@ function fromRemote(pub, priv) {
         let ly = obj(pub.layout)[c]; d.layout[c] = (ly === undefined || ly === null) ? null : ly;
         let f = obj(obj(pub.formato)[c]);
         d.formato[c] = normFmt(f);
+        let sbn = obj(pub.sembrado)[c];
+        if (sbn && typeof sbn === 'object') {
+            let g = arrDe(sbn.grupos).map(x => arrDe(x).map(n => parseInt(n)).filter(n => !isNaN(n))).filter(x => x.length), o = arrDe(sbn.orden).map(n => parseInt(n)).filter(n => !isNaN(n));
+            if (g.length && o.length) d.sembrado[c] = { orden: o, grupos: g, sd: parseInt(sbn.sd) || 0, crit: String(sbn.crit || '').slice(0, 40), ts: sbn.ts || 0 };
+        }
         let bj = obj(obj(pub.bajas)[c]);
         Object.keys(bj).forEach(k => { if (bj[k] === 'sup' || bj[k] === 'wo') d.bajas[c][k] = bj[k]; });
         let sb = obj(pub.siembra)[c];
@@ -531,7 +537,7 @@ function aplicarRemoto() {
 
 function firma(cat) {
     let info = computeCat(cat);
-    return JSON.stringify([getActivos(db, cat).map(p => p.slot), db.config[cat], db.formato[cat], db.bajas[cat], info.numGroups,
+    return JSON.stringify([getActivos(db, cat).map(p => p.slot), db.config[cat], db.formato[cat], db.bajas[cat], db.sembrado[cat], info.numGroups,
         hasScores(cat) && db.layout[cat] != null && db.layout[cat] !== info.numGroups, nube.rol, db.horario[cat], catNombre(cat), [0, 1, 2, 3, 4, 5, 6, 7].map(i => gNombre(cat, i))]);
 }
 
@@ -886,9 +892,10 @@ function computeCat(cat) {
     let fmt = normFmt(db.formato[cat]);
     if (N < 3) return { N, numGroups: 0, groups: [], tables: [], setsG: false, setsF: false, fmt };
     let numGroups = getNumGroups(N, db.config[cat] || 'auto');
-    let groups = splitGroups(activos, numGroups);
+    let sb = gruposSembrados(cat, activos, numGroups);
+    let groups = sb ? sb.grupos : splitGroups(activos, numGroups);
     let tables = groups.map(g => calcGroup(g, cat, fmt.g));
-    return { N, numGroups, groups, tables, setsG: fmt.g === 'sets', setsF: fmt.fi === 'sets', fmt };
+    return { N, numGroups, groups, tables, setsG: fmt.g === 'sets', setsF: fmt.fi === 'sets', fmt, semb: sb ? sb.rank : null, sembDesfasada: !sb && !!db.sembrado[cat] };
 }
 
 /* ---------- Definición de la fase final ---------- */
@@ -1219,7 +1226,7 @@ function calendarioSugerido(anio) {
 }
 
 /* Conjunto de trabajo: lo que pertenece a un torneo concreto (inscripciones, marcadores, horarios, datos de contacto) */
-const CAMPOS_TRABAJO = ['jugadores', 'scores', 'config', 'manual', 'layout', 'formato', 'siembra', 'horario', 'datos', 'vinc', 'bajas'];
+const CAMPOS_TRABAJO = ['jugadores', 'scores', 'config', 'manual', 'layout', 'formato', 'siembra', 'horario', 'datos', 'vinc', 'bajas', 'sembrado'];
 const CAMPOS_PROG = ['canchas', 'ini', 'fin', 'dur', 'desc', 'cats'];
 function copiarTrabajo(desde) {
     CAMPOS_TRABAJO.forEach(k => { db[k] = desde[k]; });
@@ -1228,7 +1235,7 @@ function copiarTrabajo(desde) {
 function vaciarTrabajo() { copiarTrabajo(initDB()); }
 function fotoTrabajo() {
     let r = toRemote(db), pub = { prog: {} };
-    ['jugadores', 'scores', 'config', 'manual', 'layout', 'formato', 'siembra', 'horario', 'vinc', 'bajas'].forEach(k => { pub[k] = r.publico[k]; });
+    ['jugadores', 'scores', 'config', 'manual', 'layout', 'formato', 'siembra', 'horario', 'vinc', 'bajas', 'sembrado'].forEach(k => { pub[k] = r.publico[k]; });
     CAMPOS_PROG.forEach(k => { pub.prog[k] = db.prog[k]; });
     return JSON.parse(JSON.stringify({ pub, datos: r.privado.datos }));
 }
@@ -1547,6 +1554,180 @@ function resumenPDF() {
     w.document.close(); w.focus(); setTimeout(() => w.print(), 500);
 }
 
+
+/* ---------- Siembra por nivel (escalera del club, ranking nacional/regional, UTR) ---------- */
+const ESC_LETRAS = 'ABCD', ESC_MAX = 10;
+const ESC_OPC = Array.from(ESC_LETRAS).map(l => [l, Array.from({ length: ESC_MAX }, (_, i) => l + (i + 1))]);
+const CRIT_TXT = { esc: 'Escalera del club', nac: 'Ranking nacional', reg: 'Ranking regional', utr: 'UTR' };
+const PRIO_OPC = { 'esc,nac,reg,utr': 'Escalera › Nacional › Regional › UTR', 'nac,reg,utr,esc': 'Nacional › Regional › UTR › Escalera', 'utr,esc,nac,reg': 'UTR › Escalera › Nacional › Regional' };
+function arrDe(x) { return Array.isArray(x) ? x : (x && typeof x === 'object' ? Object.keys(x).sort((a, b) => a - b).map(k => x[k]) : []); }
+function semCfg(T) {
+    let s = (T && T.sem) || {}, de = parseInt(s.difEsc), du = parseFloat(s.difUtr);
+    return { crit: CRIT_TXT[s.crit] ? s.crit : 'auto', prio: PRIO_OPC[s.prio] ? s.prio : 'esc,nac,reg,utr', par: s.par === 'mejor' ? 'mejor' : 'prom',
+             difEsc: [0, 1, 2, 9].includes(de) ? de : 1, difUtr: [1, 2, 3, 99].includes(du) ? du : 2 };
+}
+function escNum(c) { let m = /^([A-F])(10|[1-9])$/.exec(String(c || '').toUpperCase()); return m ? (m[1].charCodeAt(0) - 65) * ESC_MAX + parseInt(m[2]) : null; }
+function escGrupoIdx(c) { let m = /^([A-F])/.exec(String(c || '').toUpperCase()); return m ? m[1].charCodeAt(0) - 65 : null; }
+/* Valor para ordenar (menor = mejor) */
+function valCrit(m, k) {
+    if (!m) return null;
+    if (k === 'esc') return escNum(m.esc);
+    if (k === 'nac' || k === 'reg') { let n = parseInt(k === 'nac' ? m.rkN : m.rkR); return n > 0 ? n : null; }
+    if (k === 'utr') { let u = parseFloat(m.utr); return u >= 1 ? 17 - u : null; }
+    return null;
+}
+function nivelTxt(m) {
+    if (!m) return '';
+    let a = []; if (escNum(m.esc) != null) a.push(String(m.esc).toUpperCase()); if (m.rkN) a.push('Nac ' + m.rkN); if (m.rkR) a.push('Reg ' + m.rkR); if (m.utr !== '' && m.utr != null) a.push('UTR ' + m.utr);
+    return a.join(' · ');
+}
+function metasDe(cat, slot) { return String((db.vinc[cat] || {})[slot] || '').split(',').filter(x => x).map(i => perf.meta[i]).filter(x => x); }
+function valEntrada(metas, k, par) {
+    let v = metas.map(m => valCrit(m, k));
+    if (!v.length || v.some(x => x == null)) return null;
+    return v.length === 1 ? v[0] : (par === 'mejor' ? Math.min(v[0], v[1]) : (v[0] + v[1]) / 2);
+}
+/* Aviso cuando una pareja junta niveles muy distintos */
+function parAviso(m1, m2, cfg) {
+    if (!m1 || !m2) return '';
+    let a = [];
+    let g1 = escGrupoIdx(m1.esc), g2 = escGrupoIdx(m2.esc);
+    if (escNum(m1.esc) != null && escNum(m2.esc) != null && cfg.difEsc < 9 && Math.abs(g1 - g2) > cfg.difEsc) a.push(`escalera ${String(m1.esc).toUpperCase()} con ${String(m2.esc).toUpperCase()}`);
+    let u1 = parseFloat(m1.utr), u2 = parseFloat(m2.utr);
+    if (u1 >= 1 && u2 >= 1 && cfg.difUtr < 99 && Math.abs(u1 - u2) > cfg.difUtr) a.push(`UTR ${u1} con ${u2}`);
+    return a.join(' · ');
+}
+/* Ordena a los jugadores (o parejas) de la categoría por nivel. Lexicográfico: manda el primer criterio de la lista;
+   si empatan o no lo tienen, decide el siguiente. Los que no tienen ningún dato van al final. */
+function semCalc(cat) {
+    let T = torneoAct(), cfg = semCfg(T), D = catModo(cat) === 'D';
+    let crits = cfg.crit === 'auto' ? cfg.prio.split(',') : [cfg.crit];
+    let ents = getActivos(db, cat).map(p => {
+        let metas = metasDe(cat, p.slot);
+        let vals = crits.map(k => (D && metas.length < 2) ? null : valEntrada(metas, k, cfg.par));
+        return { slot: p.slot, name: p.name, metas, vals, sd: vals.some(v => v != null), aviso: D ? parAviso(metas[0], metas[1], cfg) : '', D };
+    });
+    ents.sort((a, b) => {
+        for (let i = 0; i < crits.length; i++) {
+            let x = a.vals[i], y = b.vals[i];
+            if (x == null && y == null) continue;
+            if (x == null) return 1; if (y == null) return -1;
+            if (x !== y) return x - y;
+        }
+        return a.slot - b.slot;
+    });
+    return { ents, crits, cfg };
+}
+/* Reparto "en serpiente" por bolas: la bola 1 (los mejores) un jugador por grupo, la bola 2 en sentido contrario, etc. */
+function formarSerpiente(orden, G) {
+    let sizes = getGroupSizes(orden.length, G), grupos = Array.from({ length: G }, () => []);
+    for (let k = 0; k < orden.length; k += G) {
+        let ida = (Math.floor(k / G) % 2 === 0), idx = Array.from({ length: G }, (_, i) => ida ? i : G - 1 - i);
+        orden.slice(k, k + G).forEach((slot, j) => {
+            let g = idx[j % G];
+            if (grupos[g].length >= sizes[g]) g = idx.find(x => grupos[x].length < sizes[x]);
+            grupos[g].push(slot);
+        });
+    }
+    return grupos;
+}
+function gruposSembrados(cat, activos, G) {
+    let sb = db.sembrado && db.sembrado[cat];
+    if (!sb || !sb.grupos || sb.grupos.length !== G) return null;
+    let por = {}; activos.forEach(p => { por[p.slot] = p; });
+    let usados = new Set(), out = [];
+    for (const g of sb.grupos) {
+        let o = [];
+        for (const sl of g) { let p = por[sl]; if (!p || usados.has(sl)) return null; usados.add(sl); o.push(p); }
+        out.push(o);
+    }
+    if (usados.size !== activos.length) return null;
+    let rank = {}; (sb.orden || []).forEach((sl, i) => { if (i < (sb.sd || 0)) rank[sl] = i + 1; });
+    return { grupos: out, rank };
+}
+const semUI = {}, semAbierto = {};
+function semOrdenInicial(cat, calc) {
+    let act = getActivos(db, cat).map(p => p.slot), sb = db.sembrado[cat];
+    if (sb && sb.orden) { let o = sb.orden.filter(x => act.includes(x)); act.forEach(x => { if (!o.includes(x)) o.push(x); }); return o; }
+    return calc.ents.map(e => e.slot);
+}
+function pintarSemb(cat) {
+    let el = document.getElementById('semb_' + cat); if (!el) return;
+    if (!puedeEditar() || hist) { el.innerHTML = ''; return; }
+    if (!nube.activa) cargarPerfilesLocal();
+    let T = torneoAct(), info = computeCat(cat);
+    if (info.N < 3) { el.innerHTML = ''; return; }
+    let calc = semCalc(cat), cfg = calc.cfg, G = info.numGroups, D = catModo(cat) === 'D';
+    let U = semUI[cat]; if (!U || U.sig !== calc.ents.map(e => e.slot).join(',')) { U = semUI[cat] = { orden: semOrdenInicial(cat, calc), sig: calc.ents.map(e => e.slot).join(',') }; }
+    let por = {}; calc.ents.forEach(e => { por[e.slot] = e; });
+    let sb = db.sembrado[cat], aplicada = !!(info.semb !== null && sb);
+    let sinDato = calc.ents.filter(e => !e.sd).length, avisos = calc.ents.filter(e => e.aviso).length;
+    const bola = i => { let e = por[U.orden[i]]; if (!e.sd) return 'Sin dato'; let b = Math.floor(i / G) + 1; return b <= 4 ? 'Bola ' + b : 'General'; };
+    const opt = (v, t, sel) => `<option value="${v}" ${String(sel) === String(v) ? 'selected' : ''}>${t}</option>`;
+    let filas = U.orden.map((sl, i) => {
+        let e = por[sl]; if (!e) return '';
+        let niv = e.metas.length ? e.metas.map(m => esc(nivelTxt(m)) || '<i class="text-gray-400">sin datos</i>').join('  /  ') : '<i class="text-gray-400">sin perfil vinculado</i>';
+        return `<tr class="border-b ${e.sd ? '' : 'bg-gray-50 text-gray-500'}"><td class="p-1 text-center font-bold">${e.sd ? i + 1 : '—'}</td><td class="p-1 text-xs">${bola(i)}</td>
+            <td class="p-1">${esc(e.name)}${e.aviso ? `<div class="text-[11px] text-amber-700">⚠ niveles distintos: ${esc(e.aviso)}</div>` : ''}${D && e.metas.length === 1 ? '<div class="text-[11px] text-amber-700">⚠ solo una de las dos personas tiene perfil vinculado</div>' : ''}</td>
+            <td class="p-1 text-xs">${niv}</td>
+            <td class="p-1 whitespace-nowrap"><button class="sem-mov px-1 border rounded" data-cat="${cat}" data-i="${i}" data-d="-1" ${i === 0 ? 'disabled' : ''}>↑</button> <button class="sem-mov px-1 border rounded" data-cat="${cat}" data-i="${i}" data-d="1" ${i === U.orden.length - 1 ? 'disabled' : ''}>↓</button></td></tr>`;
+    }).join('');
+    let grupos = '';
+    if (aplicada) {
+        grupos = `<div class="flex flex-wrap gap-2 mt-2 text-xs">${info.groups.map((g, gi) => `<div class="border rounded p-1 bg-green-50"><b>${esc(gNombre(cat, gi))}</b>: ${g.map(p => esc(p.name) + (info.semb && info.semb[p.slot] ? ` <span class="text-green-800">(S${info.semb[p.slot]})</span>` : '')).join(' · ')}</div>`).join('')}</div>`;
+    }
+    let ayuda = `Se ordena por <b>${cfg.crit === 'auto' ? cfg.prio.split(',').map(k => CRIT_TXT[k]).join(' › ') : CRIT_TXT[cfg.crit]}</b>. ` + (D ? `En dobles la pareja vale el <b>${cfg.par === 'mejor' ? 'mejor' : 'promedio'}</b> de sus dos jugadores. ` : '');
+    el.innerHTML = `<details class="bg-white border border-green-300 rounded shadow-sm mb-4 px-3 py-2" ${semAbierto[cat] ? 'open' : ''} data-cat="${cat}" id="semdet_${cat}">
+        <summary class="cursor-pointer text-sm font-bold text-green-800">🌱 Siembra por nivel ${aplicada ? '<span class="text-green-700">· grupos sembrados ✔</span>' : '<span class="text-gray-500 font-normal">· sin sembrar (los grupos se forman por orden de inscripción)</span>'}${info.sembDesfasada ? ' <span class="text-red-700">· la siembra guardada ya no coincide con los jugadores o grupos; vuelve a formar los grupos</span>' : ''}</summary>
+        <div class="mt-2 text-sm">
+            ${T ? `<div class="flex flex-wrap gap-3 items-end p-2 bg-gray-50 border rounded mb-2 text-xs">
+                <label>Criterio<br><select class="sem-cfg border rounded p-1" data-k="crit">${opt('auto', 'Automático por prioridad', cfg.crit)}${Object.keys(CRIT_TXT).map(k => opt(k, 'Solo ' + CRIT_TXT[k], cfg.crit)).join('')}</select></label>
+                ${cfg.crit === 'auto' ? `<label>Prioridad<br><select class="sem-cfg border rounded p-1" data-k="prio">${Object.keys(PRIO_OPC).map(k => opt(k, PRIO_OPC[k], cfg.prio)).join('')}</select></label>` : ''}
+                <label>Parejas de dobles<br><select class="sem-cfg border rounded p-1" data-k="par">${opt('prom', 'Valen el promedio de los dos', cfg.par)}${opt('mejor', 'Valen el del mejor jugador', cfg.par)}</select></label>
+                <label>Diferencia máx. en escalera<br><select class="sem-cfg border rounded p-1" data-k="difEsc">${opt(0, 'Mismo grupo (A con A)', cfg.difEsc)}${opt(1, 'Hasta 1 grupo (A con B)', cfg.difEsc)}${opt(2, 'Hasta 2 grupos', cfg.difEsc)}${opt(9, 'Sin límite', cfg.difEsc)}</select></label>
+                <label>Diferencia máx. en UTR<br><select class="sem-cfg border rounded p-1" data-k="difUtr">${opt(1, '1 punto', cfg.difUtr)}${opt(2, '2 puntos', cfg.difUtr)}${opt(3, '3 puntos', cfg.difUtr)}${opt(99, 'Sin límite', cfg.difUtr)}</select></label></div>` : '<p class="text-xs text-amber-700 mb-2">No hay torneo en operación: se usan los criterios por defecto.</p>'}
+            <p class="text-xs text-gray-600 mb-1">${ayuda}${perf.listo || !nube.activa ? '' : '<b class="text-amber-700">Cargando perfiles…</b> '}Los grupos se forman por <b>bolas en serpiente</b>: la bola 1 (los mejores) queda un jugador por grupo, la bola 2 en sentido contrario, y así hasta la bola 4; el resto es general. Los que no tienen ningún dato (${sinDato}) van al final.</p>
+            <div class="overflow-x-auto"><table class="w-full text-sm border-collapse"><thead><tr class="bg-gray-100 text-xs text-gray-600 text-left"><th class="p-1 w-8">#</th><th class="p-1">Bola</th><th class="p-1">${D ? 'Pareja' : 'Jugador'}</th><th class="p-1">Nivel (escalera · rankings · UTR)</th><th class="p-1">Ajuste</th></tr></thead><tbody>${filas}</tbody></table></div>
+            <div class="flex flex-wrap gap-2 mt-2 items-center">
+                <button class="sem-recalc px-3 py-1 rounded text-xs font-bold bg-gray-100 border" data-cat="${cat}" title="Descarta los ajustes manuales y vuelve a ordenar con los datos de los perfiles">↻ Recalcular orden</button>
+                <button class="sem-aplicar px-3 py-1 rounded text-xs font-bold bg-green-600 text-white" data-cat="${cat}">🌱 Formar grupos con esta siembra</button>
+                ${sb ? `<button class="sem-quitar px-3 py-1 rounded text-xs font-bold bg-red-100 text-red-800 border border-red-300" data-cat="${cat}">Quitar siembra</button>` : ''}
+                <span class="text-xs text-gray-500">${avisos ? `⚠ ${avisos} pareja(s) con niveles distintos` : ''}</span></div>
+            ${grupos}
+        </div></details>`;
+}
+document.addEventListener('toggle', e => { let t = e.target; if (t && t.id && t.id.startsWith('semdet_')) semAbierto[t.dataset.cat] = t.open; }, true);
+document.addEventListener('change', e => {
+    let t = e.target; if (!t.classList || !t.classList.contains('sem-cfg')) return;
+    let T = torneoAct(); if (!T) return;
+    let cat = t.closest('details').dataset.cat, v = t.value;
+    T.sem = Object.assign({}, T.sem, { [t.dataset.k]: (t.dataset.k === 'crit' || t.dataset.k === 'prio' || t.dataset.k === 'par') ? v : parseFloat(v) });
+    delete semUI[cat]; saveDB(); pintarSemb(cat);
+});
+document.addEventListener('click', e => {
+    let t = e.target.closest && e.target.closest('.sem-mov, .sem-recalc, .sem-aplicar, .sem-quitar'); if (!t) return;
+    let cat = t.dataset.cat, U = semUI[cat];
+    if (t.classList.contains('sem-mov')) {
+        let i = parseInt(t.dataset.i), d = parseInt(t.dataset.d), j = i + d;
+        if (U && j >= 0 && j < U.orden.length) { [U.orden[i], U.orden[j]] = [U.orden[j], U.orden[i]]; pintarSemb(cat); }
+    } else if (t.classList.contains('sem-recalc')) { delete semUI[cat]; let sb = db.sembrado[cat]; semUI[cat] = null; pintarSemb(cat); if (semUI[cat] && sb) { let c = semCalc(cat); semUI[cat].orden = c.ents.map(e => e.slot); pintarSemb(cat); } }
+    else if (t.classList.contains('sem-quitar')) {
+        if (hasPhaseScores(cat, 'g') && !confirm('Ya hay marcadores de grupos. Al quitar la siembra los grupos volverán al orden de inscripción y esos marcadores pueden dejar de corresponder a los grupos. ¿Continuar?')) return;
+        db.sembrado[cat] = null; delete semUI[cat]; saveDB(); buildCategoriasDOM(cat); updateStandings(cat);
+    } else if (t.classList.contains('sem-aplicar')) {
+        let info = computeCat(cat);
+        if (info.N < 3) return;
+        if (hasPhaseScores(cat, 'g')) { alert('Esta categoría ya tiene marcadores de grupos; no se pueden rehacer los grupos. Si realmente quieres rehacerlos, primero usa «Borrar marcadores».'); return; }
+        let calc = semCalc(cat), por = {}; calc.ents.forEach(x => { por[x.slot] = x; });
+        let orden = (U ? U.orden : calc.ents.map(x => x.slot)).filter(sl => por[sl]);
+        let sd = orden.filter(sl => por[sl].sd).length;
+        if (sd === 0 && !confirm('Ningún jugador de esta categoría tiene datos de nivel (o no están vinculados a un perfil). Los grupos quedarían en orden de inscripción. ¿Continuar?')) return;
+        db.sembrado[cat] = { orden, sd, crit: calc.cfg.crit === 'auto' ? calc.cfg.prio : calc.cfg.crit, grupos: formarSerpiente(orden, info.numGroups), ts: Date.now() };
+        if (db.layout[cat] == null) db.layout[cat] = null;
+        delete semUI[cat]; saveDB(); buildCategoriasDOM(cat); updateStandings(cat);
+    }
+});
+
 function resultadosCat(cat) {
     let info = computeCat(cat);
     if (info.N < 3) return { completa: false, filas: [] };
@@ -1737,7 +1918,7 @@ async function miniDe(dataUrl) {
     catch (e) { return ''; }
 }
 
-function perfilVacio() { return { nombre: '', nac: '', sexo: '', ciudad: '', socio: true, club: '', utr: '', cat: '', mano: '', reves: '', dep: 'T', anios: '', coach: '', tel: '', email: '', tutor: '', tutorTel: '', aut: false, obs: '' }; }
+function perfilVacio() { return { nombre: '', nac: '', sexo: '', ciudad: '', socio: true, club: '', utr: '', esc: '', rkN: '', rkR: '', cat: '', mano: '', reves: '', dep: 'T', anios: '', coach: '', tel: '', email: '', tutor: '', tutorTel: '', aut: false, obs: '' }; }
 const DEPORTES = [['T', 'Tenis'], ['P', 'Pádel'], ['K', 'Pickleball']];
 /* Campos del perfil: los usan el formulario del administrador (p = 'pf') y el registro público (p = 'al') */
 function camposPerfil(p, d, admin) {
@@ -1755,6 +1936,9 @@ function camposPerfil(p, d, admin) {
             ${admin ? `<datalist id="${p}_clubes">${clubes.map(c => `<option value="${esc(c)}">`).join('')}</datalist>` : ''}</div>
         <div>${lab('Nivel de juego (opcional; lo confirma el club)')}<select class="field ${p}-in" data-k="cat"><option value="">— no sé / sin definir —</option>${NIVELES.map(c => `<option value="${c}" ${d.cat === c ? 'selected' : ''}>Nivel ${c}</option>`).join('')}</select></div>
         <div>${lab('Puntos UTR (opcional)')}<input type="number" step="0.01" min="1" max="16.5" class="field ${p}-in" data-k="utr" value="${v('utr')}" placeholder="1.00 – 16.50"></div>
+        <div>${lab('Grupo en la escalera del club (opcional)')}<select class="field ${p}-in" data-k="esc"><option value="">— no participo / no sé —</option>${ESC_OPC.map(([l, cs]) => `<optgroup label="Grupo ${l}">${cs.map(c => `<option value="${c}" ${String(d.esc || '').toUpperCase() === c ? 'selected' : ''}>${c}</option>`).join('')}</optgroup>`).join('')}</select></div>
+        <div>${lab('Ranking nacional (opcional)')}<input type="number" min="1" max="99999" class="field ${p}-in" data-k="rkN" value="${v('rkN')}" placeholder="Lugar, ej. 120"></div>
+        <div>${lab('Ranking regional o estatal (opcional)')}<input type="number" min="1" max="99999" class="field ${p}-in" data-k="rkR" value="${v('rkR')}" placeholder="Lugar, ej. 15"></div>
         <div>${lab('Mano con la que juega')}${sel('mano', [['D', 'Diestro(a)'], ['Z', 'Zurdo(a)']])}</div>
         <div>${lab('Revés')}${sel('reves', [['1', 'A una mano'], ['2', 'A dos manos']])}</div>
         <div>${lab('Años jugando')}<input type="number" min="0" max="80" class="field ${p}-in" data-k="anios" value="${v('anios')}" placeholder="Ej. 5"></div>
@@ -1830,14 +2014,14 @@ function pintarListaPerfiles() {
                 <div class="font-bold text-gray-800 break-words">${esc(m.nombre || '(sin nombre)')}</div>
                 <div class="text-xs text-gray-500">Reg. <span class="font-mono font-bold">${numTxt(m.num || 0)}</span>${e !== '' ? ` · ${e} años` : ''}</div>
                 <div class="text-xs text-gray-600 break-words">${esc(m.ciudad || '')}${m.ciudad ? ' · ' : ''}${m.socio === false ? 'Libre' : esc(m.club || 'Club sin indicar')}</div>
-                <div class="mt-1 flex flex-wrap gap-1 text-xs">${m.utr !== '' && m.utr != null ? `<span class="bg-blue-100 text-blue-800 rounded px-2">UTR ${esc(m.utr)}</span>` : ''}${m.cat ? `<span class="bg-green-100 text-green-800 rounded px-2">Nivel ${esc(m.cat)}</span>` : ''}${m.sexo ? `<span class="bg-pink-50 text-gray-700 rounded px-2">${m.sexo === 'F' ? 'Femenil' : 'Varonil'}</span>` : ''}<span class="bg-gray-100 text-gray-600 rounded px-2">📷 ${nf}/3</span></div>
+                <div class="mt-1 flex flex-wrap gap-1 text-xs">${escNum(m.esc) != null ? `<span class="bg-purple-100 text-purple-800 rounded px-2" title="Escalera del club">${esc(String(m.esc).toUpperCase())}</span>` : ''}${m.rkN ? `<span class="bg-amber-100 text-amber-800 rounded px-2">Nac ${esc(m.rkN)}</span>` : ''}${m.rkR ? `<span class="bg-amber-50 text-amber-800 rounded px-2">Reg ${esc(m.rkR)}</span>` : ''}${m.utr !== '' && m.utr != null ? `<span class="bg-blue-100 text-blue-800 rounded px-2">UTR ${esc(m.utr)}</span>` : ''}${m.cat ? `<span class="bg-green-100 text-green-800 rounded px-2">Nivel ${esc(m.cat)}</span>` : ''}${m.sexo ? `<span class="bg-pink-50 text-gray-700 rounded px-2">${m.sexo === 'F' ? 'Femenil' : 'Varonil'}</span>` : ''}<span class="bg-gray-100 text-gray-600 rounded px-2">📷 ${nf}/3</span></div>
             </div></div>`;
     }).join('') + '</div>';
 }
 
 /* ----- Formulario (ventana) ----- */
 function mapeaPerfil(m) {
-    return { nombre: m.nombre || '', nac: m.nac || '', sexo: m.sexo || '', ciudad: m.ciudad || '', socio: m.socio !== false, club: m.club || '', utr: m.utr == null ? '' : m.utr, cat: m.cat || '',
+    return { nombre: m.nombre || '', nac: m.nac || '', sexo: m.sexo || '', ciudad: m.ciudad || '', socio: m.socio !== false, club: m.club || '', utr: m.utr == null ? '' : m.utr, esc: m.esc || '', rkN: m.rkN == null ? '' : m.rkN, rkR: m.rkR == null ? '' : m.rkR, cat: m.cat || '',
              mano: m.mano || '', reves: m.reves || '', dep: m.dep == null ? 'T' : String(m.dep), anios: m.anios == null ? '' : m.anios, coach: m.coach || '', tel: m.tel || '', email: m.email || '',
              tutor: m.tutor || '', tutorTel: m.tutorTel || '', aut: !!m.aut, obs: m.obs || '' };
 }
@@ -1917,6 +2101,8 @@ async function guardarPerfil() {
     if (d.nac && d.nac > new Date().toISOString().slice(0, 10)) { alert('La fecha de nacimiento no puede ser futura.'); return; }
     let utr = String(d.utr).trim();
     if (utr !== '' && !(parseFloat(utr) >= 1 && parseFloat(utr) <= 16.5)) { alert('El UTR debe estar entre 1.00 y 16.50 (o déjalo vacío).'); return; }
+    let rkN = String(d.rkN).trim(), rkR = String(d.rkR).trim();
+    if ((rkN !== '' && !(parseInt(rkN) >= 1 && parseInt(rkN) <= 99999)) || (rkR !== '' && !(parseInt(rkR) >= 1 && parseInt(rkR) <= 99999))) { alert('Los rankings deben ser el número de lugar (1 a 99999) o quedar vacíos.'); return; }
     const norm = t => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
     let dup = Object.keys(perf.meta).find(i => i !== E.id && norm(perf.meta[i].nombre) === norm(nombre) && (perf.meta[i].nac || '') === (d.nac || ''));
     if (dup && !confirm(`Ya existe un perfil de "${perf.meta[dup].nombre}" con el mismo nombre y fecha de nacimiento (reg. ${numTxt(perf.meta[dup].num)}).\n\n¿Guardar de todos modos como otro perfil?`)) return;
@@ -1925,7 +2111,7 @@ async function guardarPerfil() {
     try {
         let id = E.id || ('p' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36));
         let num = E.num || await siguienteNumero();
-        let meta = { nombre, nac: d.nac || '', ciudad: String(d.ciudad || '').trim(), socio: !!d.socio, club: d.socio ? String(d.club || '').trim() : '', utr: utr === '' ? '' : parseFloat(utr),
+        let meta = { nombre, nac: d.nac || '', ciudad: String(d.ciudad || '').trim(), socio: !!d.socio, club: d.socio ? String(d.club || '').trim() : '', utr: utr === '' ? '' : parseFloat(utr), esc: escNum(d.esc) != null ? String(d.esc).toUpperCase() : '', rkN: rkN === '' ? '' : parseInt(rkN), rkR: rkR === '' ? '' : parseInt(rkR),
                      cat: d.cat || '', sexo: d.sexo || '', mano: d.mano || '', reves: d.reves || '', dep: String(d.dep || ''), anios: String(d.anios).trim() === '' ? '' : (parseInt(d.anios) || 0), coach: String(d.coach || '').trim(), tel: String(d.tel || '').trim(), email: String(d.email || '').trim(), tutor: String(d.tutor || '').trim(), tutorTel: String(d.tutorTel || '').trim(), aut: !!d.aut, obs: String(d.obs || '').trim(), num, fr: !!E.f.r, fd: !!E.f.d, fc: !!E.f.c, mini: await miniDe(E.f.r), act: Date.now() };
         let fotos = {}; ['r', 'd', 'c'].forEach(k => { if (E.f[k]) fotos[k] = E.f[k]; });
         if (nube.activa) {
@@ -2198,6 +2384,7 @@ async function enviarAlta() {
     else if (!String(d.tel).trim() && !String(d.email).trim()) err = 'Escribe un teléfono o un correo para poder contactarte.';
     else if (e < 18 && !String(d.tutor).trim()) err = 'Eres menor de 18 años: escribe el nombre de tu madre, padre o tutor y su teléfono.';
     else if (String(d.utr).trim() !== '' && !(parseFloat(d.utr) >= 1 && parseFloat(d.utr) <= 16.5)) err = 'El UTR debe estar entre 1.00 y 16.50 (o déjalo vacío).';
+    else if ([d.rkN, d.rkR].some(x => String(x).trim() !== '' && !(parseInt(x) >= 1 && parseInt(x) <= 99999))) err = 'Los rankings deben ser el número de lugar (1 a 99999) o quedar vacíos.';
     else if (!alta.d.aut) err = 'Debes aceptar el aviso de privacidad.';
     if (err) { alta.msg = err; document.getElementById('al_msg').textContent = err; return; }
     let p = { ts: Date.now(), aut: true, nombre: String(d.nombre).trim().replace(/\s+/g, ' '), nac: d.nac };
@@ -2207,6 +2394,9 @@ async function enviarAlta() {
     if (d.dep) p.dep = String(d.dep).slice(0, 3);
     p.socio = !!d.socio; if (!d.socio) delete p.club;
     if (String(d.utr).trim() !== '') p.utr = parseFloat(d.utr);
+    if (escNum(d.esc) != null) p.esc = String(d.esc).toUpperCase();
+    if (String(d.rkN).trim() !== '') p.rkN = parseInt(d.rkN);
+    if (String(d.rkR).trim() !== '') p.rkR = parseInt(d.rkR);
     if (String(d.anios).trim() !== '') p.anios = Math.max(0, Math.min(80, parseInt(d.anios) || 0));
     let pre = (document.getElementById('al_pre') || {}).value; if (pre) { p.pre = pre.slice(0, 160); alta.pre = pre; }
     if (alta.f.r) p.fr = alta.f.r; if (alta.f.d) p.fd = alta.f.d; if (alta.f.c) p.fc = alta.f.c;
@@ -2482,7 +2672,7 @@ function htmlInscripciones(tid) {
                     par = p ? `${esc(p.nom)} ${p.mutua ? '<span class="text-green-700" title="Ambos se nombraron">✔ confirmada</span>' : '<span class="text-amber-700">⏳ sin confirmar</span>'}` : '<span class="text-red-700">sin pareja</span>';
                     if (!p || !p.mutua) par += `<div><select class="ins-pj border rounded p-0.5" data-t="${tid}" data-id="${f.id}" data-c="${c}"><option value="">Emparejar con…</option>${libres.map(x => `<option value="${x.id}">${esc(x.nom)}</option>`).join('')}</select>${p && p.pid && perf.meta[p.pid] && (perf.meta[p.pid].tel) ? ` <button class="ins-wapar underline text-green-700" data-t="${tid}" data-id="${f.id}" data-c="${c}">avisar a su pareja</button>` : ''}</div>`;
                 }
-                return `<tr class="border-b align-top"><td class="p-1 border"><div class="font-bold">${esc(f.nom)}</div><div>${chip}</div><div class="text-gray-500">📱 ${esc(f.r.tel || '')}${f.r.tutor ? ' · tutor: ' + esc(f.r.tutor) : ''}${edadDe(f.r.nac) !== '' && edadDe(f.r.nac) < 18 ? ' <b class="text-amber-700">menor</b>' : ''}</div></td>
+                return `<tr class="border-b align-top"><td class="p-1 border"><div class="font-bold">${esc(f.nom)}</div><div>${chip}</div>${pf.id && nivelTxt(perf.meta[pf.id]) ? `<div class="text-purple-800" title="Escalera · rankings · UTR">🌱 ${esc(nivelTxt(perf.meta[pf.id]))}</div>` : ''}${(M !== 'S' && pf.id && f.par && f.par.pid && perf.meta[f.par.pid] && parAviso(perf.meta[pf.id], perf.meta[f.par.pid], semCfg(T))) ? `<div class="text-amber-700">⚠ pareja con niveles distintos: ${esc(parAviso(perf.meta[pf.id], perf.meta[f.par.pid], semCfg(T)))}</div>` : ''}<div class="text-gray-500">📱 ${esc(f.r.tel || '')}${f.r.tutor ? ' · tutor: ' + esc(f.r.tutor) : ''}${edadDe(f.r.nac) !== '' && edadDe(f.r.nac) < 18 ? ' <b class="text-amber-700">menor</b>' : ''}</div></td>
                     <td class="p-1 border">${par}</td>
                     <td class="p-1 border"><select class="ins-e border rounded p-0.5" data-t="${tid}" data-id="${f.id}" data-c="${c}">${Object.keys(ESTADOS_INS).map(v => opt(v, ESTADOS_INS[v], e)).join('')}</select></td>
                     <td class="p-1 border"><input type="number" min="0" class="ins-m border rounded p-0.5 w-20" data-t="${tid}" data-id="${f.id}" data-c="${c}" value="${m}"></td>
@@ -3166,7 +3356,8 @@ function buildCategoriasDOM(cat) {
         <div class="flex flex-col gap-2 mt-2">${fasesVis.map(fmtFila).join('')}${fmtTodas}
             <p class="text-xs text-gray-500">La ventaja es informativa: se muestra en el cuadro y en los mensajes; el marcador se captura igual. Al cambiar el modo de una fase se borran los marcadores ya capturados de esa fase.</p>
             <p class="text-xs text-gray-500"><b>Jugadores que no se presentan:</b> en la tabla de cada grupo, columna «Estado». <i>Baja: suprimir</i> quita al jugador y todos sus partidos de la tabla (nadie gana ni pierde por él y los porcentajes de los demás no cambian; es lo recomendable si faltó desde el inicio). <i>Baja: default a rivales</i> conserva lo ya jugado y da por ganados los partidos pendientes, sin sumar juegos ni sets. Un jugador de baja nunca clasifica. Para un solo partido, usa «Default (WO)» debajo del marcador.</p></div>
-    </details>`;
+    </details>
+    <div id="semb_${cat}" class="solo-admin"></div>`;
 
     if (N < 3) {
         container.innerHTML = headerHtml + `<div class="text-center p-10 bg-white rounded shadow text-gray-500 border border-gray-200">${puedeEditar() ? 'Registra al menos 3 jugadores.' : 'Esta categoría todavía no tiene jugadores registrados.'}</div>`;
@@ -3273,6 +3464,7 @@ function buildCategoriasDOM(cat) {
 
     container.innerHTML = html;
     autoAlto(container);
+    pintarSemb(cat);
     container.dataset.sig = firma(cat);
     // Modo consulta: nada se puede modificar
     if (!puedeEditar()) {
@@ -3301,7 +3493,7 @@ function updateStandings(cat) {
             if (j.baja) return `<tr class="bg-gray-100 text-gray-400 border-b"><td class="p-1">—</td><td class="p-1 text-left leading-tight whitespace-normal break-words line-through" style="min-width:110px;max-width:260px" title="${esc(j.nombre)}">${esc(j.nombre)} <span class="no-underline text-[10px] font-bold text-red-600" style="text-decoration:none;display:inline-block">BAJA${j.baja === 'sup' ? ' (suprimido)' : ''}</span></td>
                 <td class="p-1" colspan="${info.setsG ? 8 : 5}">${j.baja === 'sup' ? 'sus partidos no cuentan' : 'default a sus rivales'}</td>${estado}</tr>`;
             return `<tr class="${clasifica ? 'win-row' : 'bg-white'} border-b">
-                <td class="p-1">${i + 1}</td><td class="p-1 text-left font-medium whitespace-normal break-words leading-tight text-gray-700" style="min-width:110px;max-width:260px" title="${esc(j.nombre)}">${esc(j.nombre)}</td>
+                <td class="p-1">${i + 1}</td><td class="p-1 text-left font-medium whitespace-normal break-words leading-tight text-gray-700" style="min-width:110px;max-width:260px" title="${esc(j.nombre)}">${esc(j.nombre)}${info.semb && info.semb[j.slot] ? ` <span class="text-[10px] font-bold bg-green-100 text-green-800 rounded px-1" title="Sembrado número ${info.semb[j.slot]}">S${info.semb[j.slot]}</span>` : ''}</td>
                 <td class="p-1">${j.pj}</td><td class="p-1">${j.pg}</td><td class="p-1">${j.wg}</td><td class="p-1">${j.lg}</td><td class="p-1 font-bold text-green-800">${j.pct.toFixed(1)}%</td>
                 ${info.setsG ? `<td class="p-1 bg-blue-50/50 text-gray-600">${j.jgw}</td><td class="p-1 bg-blue-50/50 text-gray-600">${j.jgl}</td><td class="p-1 font-bold text-blue-800 bg-blue-50/50">${j.pct_j.toFixed(1)}%</td>` : ''}
                 ${estado}
