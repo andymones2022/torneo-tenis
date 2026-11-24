@@ -76,6 +76,7 @@
         <button id="btn_Perfiles" class="solo-admin tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Perfiles')">🪪 Perfiles</button>
         <button id="btn_Jugadores" class="solo-admin tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Jugadores')">👥 Jugadores</button>
  <button id="btn_Programacion" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Programacion')">📅 Programación</button>
+        <button id="btn_Simulador" class="solo-admin tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Simulador')" title="Prueba escenarios y probabilidades sin tocar los datos reales">🔮 Simulador</button>
         <button id="btn_Capturistas" class="solo-admin solo-nube tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Capturistas')">🔐 Capturistas <span id="badge_pend" class="bg-red-600 text-white text-xs font-bold rounded-full px-2" style="display:none"></span></button>
 <span id="tabs-cats" style="display:contents"></span>
         <button id="btn_instalar" class="px-4 py-2 font-bold text-green-700 hover:text-green-900 transition" style="display:none" title="Instalar la app en tu teléfono o computadora">📲 Instalar app</button>
@@ -134,6 +135,7 @@
 
     <!-- Pestaña Programación de horarios y asignación de canchas -->
     <div id="tab_Programacion" class="tab-content"></div>
+    <div id="tab_Simulador" class="tab-content"></div>
 
     <!-- Pestaña Capturistas (solo administradores, modo nube) -->
     <div id="tab_Capturistas" class="tab-content"></div>
@@ -1132,6 +1134,235 @@ function renderInscripciones() {
     pintarDatalistPerfiles(); pintarVinculos();
 }
 
+/* ---------- Simulador: probabilidades y situaciones posibles (NO modifica los datos reales) ---------- */
+const simUI = { cat: '', runs: 500, sens: 'medio', pBaja: 0, tBaja: 'sup', fuerza: {}, F: {}, res: null, ej: null, corriendo: false };
+const SIM_ESC = { alto: 18, medio: 35, bajo: 70 };
+const SIM_SENS = { alto: 'El nivel pesa mucho (casi siempre gana el mejor)', medio: 'Equilibrado', bajo: 'Mucho azar (sorpresas frecuentes)' };
+
+/* Fuerza automática (0-100) según el orden de siembra: los que tienen datos de nivel, de 90 a 10; los que no, 40 */
+function simAuto(cat) {
+    let ents = semCalc(cat).ents, con = ents.filter(e => e.sd), n = con.length, f = {};
+    ents.forEach(e => { f[e.slot] = 40; });
+    con.forEach((e, i) => { f[e.slot] = n > 1 ? Math.round(90 - 80 * i / (n - 1)) : 60; });
+    return f;
+}
+function simPrepararF(cat) {
+    simUI.F = Object.assign({}, simAuto(cat), simUI.fuerza[cat] || {});
+}
+function simQ(a, b) { return 1 / (1 + Math.exp(-((simUI.F[a] || 0) - (simUI.F[b] || 0)) / SIM_ESC[simUI.sens])); }
+/* Marcador válido para el formato, jugando punto por punto con probabilidad q de que gane el jugador 1 cada juego */
+function simGen(modo, q) {
+    const bern = p => Math.random() < p;
+    const set6 = () => {
+        let a = 0, b = 0;
+        for (;;) {
+            if (bern(q)) a++; else b++;
+            if (a >= 6 && a - b >= 2) return [a, b];
+            if (b >= 6 && b - a >= 2) return [a, b];
+            if (a === 6 && b === 6) return bern(q) ? [7, 6] : [6, 7];
+        }
+    };
+    if (modo === 'sets') {
+        let w1 = 0, w2 = 0, partes = [];
+        for (let i = 0; i < 2; i++) { let r = set6(); partes.push(r.join('-')); if (r[0] > r[1]) w1++; else w2++; }
+        if (w1 === 1 && w2 === 1) {
+            let a = 0, b = 0;
+            while (!((a >= 10 || b >= 10) && Math.abs(a - b) >= 2)) { if (bern(q)) a++; else b++; }
+            partes.push(a + '-' + b);
+        }
+        return partes.join(', ');
+    }
+    if (modo === 'p6') return set6().join('-');
+    let a = 0, b = 0;
+    while (a < 8 && b < 8) { if (bern(q)) a++; else b++; }
+    return a + '-' + b;
+}
+
+/* Un torneo completo simulado en una copia temporal de los datos de la categoría (se restauran siempre) */
+function simUnaCorrida(cat, capturar) {
+    const sv = { s: db.scores[cat], b: db.bajas[cat], m: db.manual[cat], g: db.siembra[cat] };
+    try {
+        db.scores[cat] = {}; db.manual[cat] = {}; db.siembra[cat] = null;
+        let bajas = Object.assign({}, sv.b || {});
+        if (simUI.pBaja > 0) getActivos(db, cat).forEach(p => { if (!bajas[p.slot] && Math.random() * 100 < simUI.pBaja) bajas[p.slot] = simUI.tBaja; });
+        db.bajas[cat] = bajas;
+        let info = computeCat(cat);
+        if (info.N < 3) return null;
+        const jug = (a, b, modo) => db.scores[cat][pairKey(a, b)] = simGen(modo, simQ(a.slot, b.slot));
+        info.groups.forEach(g => { for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) { if (esBaja(cat, g[i].slot) || esBaja(cat, g[j].slot)) continue; jug(g[i], g[j], info.fmt.g); } });
+        info = computeCat(cat);
+        let G = info.numGroups, rondas = getBracket(G), R = rondas.length, L = {}, gOf = {}, r1 = false;
+        info.groups.forEach((g, gi) => g.forEach(p => { gOf[p.slot] = gi; }));
+        rondas.forEach((r, ri) => {
+            let res = resolveBracket(cat, computeCat(cat));
+            r.matches.forEach(([key]) => {
+                let sd = res.sides[key]; if (!sd) return;
+                let a = sd[0], b = sd[1], w = sd[2];
+                [a, b].forEach(x => { if (x && !x.bye) L[x.slot] = Math.max(L[x.slot] || 0, ri + 1); });
+                if (ri === 0 && a && b && !a.bye && !b.bye && gOf[a.slot] === gOf[b.slot]) r1 = true;
+                if (a && b && !a.bye && !b.bye && !w) db.scores[cat][key] = simGen(info.fmt[faseDeKey(key)], simQ(a.slot, b.slot));
+            });
+        });
+        let fin = resolveBracket(cat, computeCat(cat)), campeon = null, sub = null;
+        if (R === 0) {
+            let st = info.tables[0].stats.filter(x => !x.baja);
+            campeon = st[0] ? st[0].slot : null; sub = st[1] ? st[1].slot : null;
+        } else {
+            let w = fin.winners.F, sd = fin.sides.F;
+            if (w && !w.bye) {
+                campeon = w.slot; L[campeon] = R + 1;
+                let o = sd[0] && sd[0].slot === campeon ? sd[1] : sd[0]; sub = o && !o.bye ? o.slot : null;
+            }
+        }
+        let emp = 0, pos1 = [];
+        info.tables.forEach(t => {
+            let st = t.stats.filter(x => !x.baja);
+            if (st[0]) pos1.push(st[0].slot);
+            for (let i = 0; i < st.length - 1 && i < 3; i++) if (st[i].pg === st[i + 1].pg && Math.abs(st[i].pct - st[i + 1].pct) < 0.01) emp++;
+        });
+        let out = { campeon, sub, L, R, r1, emp, pos1, nBajas: Object.keys(bajas).length - Object.keys(sv.b || {}).length,
+                    pos: {} };
+        info.tables.forEach(t => t.stats.forEach((x, i) => { if (!x.baja) out.pos[x.slot] = i; }));
+        if (capturar) {
+            const nom = x => !x ? '—' : (x.bye ? 'Pasa directo' : x.nombre);
+            out.ej = {
+                tablas: info.tables.map(t => t.stats.map(x => ({ n: x.nombre, pg: x.pg, pj: x.pj, pct: x.pct, baja: x.baja }))),
+                rondas: rondas.map(r => ({ t: r.title, m: r.matches.map(([key]) => { let sd = fin.sides[key] || [null, null, 0]; return { a: nom(sd[0]), b: nom(sd[1]), w: sd[2], sc: db.scores[cat][key] || '' }; }) })),
+                campeon: campeon != null ? (db.jugadores[cat][campeon] || '') : '' };
+        }
+        return out;
+    } finally {
+        db.scores[cat] = sv.s; db.bajas[cat] = sv.b; db.manual[cat] = sv.m; db.siembra[cat] = sv.g;
+    }
+}
+
+function simCorrer() {
+    if (simUI.corriendo || !simUI.cat) return;
+    let cat = simUI.cat, N = simUI.runs, hechos = 0;
+    simPrepararF(cat);
+    let acum = { cat, n: 0, R: null, tit: getBracket(computeCat(cat).numGroups).map(r => r.title), ch: {}, sub: {}, p1: {}, pos: {}, L: {}, finales: {}, r1: 0, emp: 0, bajas: 0, F: Object.assign({}, simUI.F), sens: simUI.sens, pBaja: simUI.pBaja };
+    simUI.corriendo = true; simUI.res = null;
+    const paso = () => {
+        let fin = Math.min(hechos + 20, N);
+        for (; hechos < fin; hechos++) {
+            let r = simUnaCorrida(cat, false); if (!r) continue;
+            acum.n++; acum.R = r.R;
+            if (r.campeon != null) acum.ch[r.campeon] = (acum.ch[r.campeon] || 0) + 1;
+            if (r.sub != null) acum.sub[r.sub] = (acum.sub[r.sub] || 0) + 1;
+            if (r.campeon != null && r.sub != null) { let k = Math.min(r.campeon, r.sub) + '|' + Math.max(r.campeon, r.sub); acum.finales[k] = (acum.finales[k] || 0) + 1; }
+            r.pos1.forEach(sl => { acum.p1[sl] = (acum.p1[sl] || 0) + 1; });
+            Object.keys(r.pos).forEach(sl => { let o = acum.pos[sl] = acum.pos[sl] || []; o[r.pos[sl]] = (o[r.pos[sl]] || 0) + 1; });
+            Object.keys(r.L).forEach(sl => { let o = acum.L[sl] = acum.L[sl] || []; o[r.L[sl]] = (o[r.L[sl]] || 0) + 1; });
+            if (r.r1) acum.r1++;
+            if (r.emp > 0) acum.emp++;
+            acum.bajas += r.nBajas;
+        }
+        let pr = document.getElementById('sim_prog'); if (pr) pr.textContent = `Simulando… ${hechos} de ${N}`;
+        if (hechos < N) setTimeout(paso, 0);
+        else { simUI.corriendo = false; simUI.res = acum; renderSimulador(); }
+    };
+    paso();
+}
+function simEjemplo() {
+    if (simUI.corriendo || !simUI.cat) return;
+    simPrepararF(simUI.cat);
+    let r = simUnaCorrida(simUI.cat, true);
+    simUI.ej = r ? r.ej : null; renderSimulador();
+}
+function simRestablecer() { simUI.fuerza[simUI.cat] = {}; simUI.res = null; renderSimulador(); }
+
+function simHtmlRes(cat) {
+    let a = simUI.res; if (!a || a.cat !== cat || !a.n) return '';
+    let nombres = {}; getActivos(db, cat).forEach(p => { nombres[p.slot] = p.name; });
+    let slots = Object.keys(a.F).map(Number).filter(sl => nombres[sl] != null), n = a.n, R = a.R;
+    const pc = (v) => (v || 0) / n * 100;
+    const celda = (p, color) => `<td class="p-1 border text-center text-xs" style="background:linear-gradient(90deg,${color || 'rgba(34,197,94,.35)'} ${p.toFixed(0)}%,transparent ${p.toFixed(0)}%)">${p < 0.5 && p > 0 ? '<1' : p.toFixed(0)}%</td>`;
+    const lvl = sl => a.L[sl] || [];
+    const llega = (sl, k) => { let o = lvl(sl), t = 0; for (let i = k; i < o.length; i++) t += o[i] || 0; return t / n * 100; };
+    let filas = slots.map(sl => ({ sl, ch: pc(a.ch[sl]), sub: pc(a.sub[sl]) }));
+    filas.sort((x, y) => y.ch - x.ch || y.sub - x.sub || (a.F[y.sl] - a.F[x.sl]));
+    let cab = `<th class="p-1 border text-left">Jugador / pareja</th><th class="p-1 border">Nivel</th><th class="p-1 border">1º de grupo</th>`;
+    if (R > 0) { cab += `<th class="p-1 border">Clasifica</th>`; for (let k = 2; k <= R; k++) cab += `<th class="p-1 border">Llega a ${esc(a.tit[k - 1] || 'ronda ' + k)}</th>`; }
+    cab += `<th class="p-1 border">Subcampeón</th><th class="p-1 border">Campeón</th>`;
+    let cuerpo = filas.map(f => {
+        let sl = f.sl, t = `<td class="p-1 border text-xs font-semibold">${esc(nombres[sl])}</td><td class="p-1 border text-center text-xs text-gray-600">${a.F[sl]}</td>` + celda(pc(a.p1[sl]));
+        if (R > 0) { t += celda(llega(sl, 1), 'rgba(59,130,246,.30)'); for (let k = 2; k <= R; k++) t += celda(llega(sl, k), 'rgba(59,130,246,.30)'); }
+        return `<tr>${t}${celda(f.sub, 'rgba(250,204,21,.45)')}${celda(f.ch, 'rgba(234,88,12,.40)')}</tr>`;
+    }).join('');
+    // Situaciones
+    let rank = slots.slice().sort((x, y) => a.F[y] - a.F[x]), fuertes = rank[0], mitad = new Set(rank.slice(0, Math.ceil(rank.length / 2)));
+    let parejos = a.F[rank[0]] === a.F[rank[rank.length - 1]], sorp = 0;
+    Object.keys(a.ch).forEach(sl => { if (!mitad.has(Number(sl))) sorp += a.ch[sl]; });
+    let fin = Object.keys(a.finales).map(k => [k, a.finales[k]]).sort((x, y) => y[1] - x[1]).slice(0, 5);
+    let li = [];
+    if (parejos) li.push('Ningún jugador tiene datos de nivel distintos: el resultado es puro azar. Captura UTR, ranking o escalera en Perfiles, o ajusta el nivel de cada jugador abajo.');
+    else {
+        li.push(`El jugador de mayor nivel (<b>${esc(nombres[fuertes])}</b>) fue campeón en <b>${pc(a.ch[fuertes]).toFixed(0)}%</b> de los torneos simulados.`);
+        li.push(`El campeón salió de la <b>mitad de menor nivel</b> en <b>${(sorp / n * 100).toFixed(0)}%</b> de los torneos (sorpresas).`);
+    }
+    if (fin.length) li.push('Finales más frecuentes: ' + fin.map(([k, v]) => { let [x, y] = k.split('|'); return `${esc(nombres[x])} vs ${esc(nombres[y])} (${(v / n * 100).toFixed(0)}%)`; }).join('; ') + '.');
+    if (R > 0) li.push(`Dos jugadores del mismo grupo en la <b>primera ronda</b> de la fase final: <b>${(a.r1 / n * 100).toFixed(0)}%</b> de los torneos.`);
+    li.push(`Empates técnicos en la tabla de un grupo (mismos partidos ganados y mismo %), resueltos por enfrentamiento directo u orden de inscripción: <b>${(a.emp / n * 100).toFixed(0)}%</b> de los torneos.`);
+    if (a.pBaja > 0) li.push(`Con ${a.pBaja}% de probabilidad de baja por jugador hubo en promedio <b>${(a.bajas / n).toFixed(1)}</b> jugadores que no se presentan por torneo.`);
+    return `<div class="mt-4"><h3 class="font-bold text-green-800 mb-1">Resultados de ${n} torneos simulados · ${esc(SIM_SENS[a.sens])}</h3>
+        <ul class="list-disc ml-5 text-sm text-gray-700 mb-3 space-y-1">${li.map(x => `<li>${x}</li>`).join('')}</ul>
+        <div class="overflow-x-auto"><table class="text-sm border-collapse w-full"><thead><tr class="bg-gray-100 text-gray-600">${cab}</tr></thead><tbody>${cuerpo}</tbody></table></div>
+        <p class="text-xs text-gray-500 mt-1">Cada porcentaje es la proporción de torneos simulados en que el jugador alcanzó esa etapa. Son estimaciones: dependen del nivel que se asignó a cada jugador y de cuánto azar se permite.</p></div>`;
+}
+function simHtmlEj(cat) {
+    let e = simUI.ej; if (!e) return '';
+    let tablas = e.tablas.map((t, gi) => `<div class="border rounded p-2 bg-white"><div class="font-bold text-xs text-green-800 mb-1">${esc(gNombre(cat, gi))}</div><table class="text-xs w-full">${t.map((x, i) => `<tr class="${x.baja ? 'text-gray-400 line-through' : ''}"><td class="pr-1">${i + 1}.</td><td>${esc(x.n)}</td><td class="text-right">${x.pg}/${x.pj}</td><td class="text-right pl-1">${x.pct.toFixed(0)}%</td></tr>`).join('')}</table></div>`).join('');
+    let rondas = e.rondas.map(r => `<div class="border rounded p-2 bg-white"><div class="font-bold text-xs text-blue-800 mb-1">${esc(r.t)}</div>${r.m.map(m => `<div class="text-xs mb-1"><span class="${m.w === 1 ? 'font-bold text-green-700' : ''}">${esc(m.a)}</span> vs <span class="${m.w === 2 ? 'font-bold text-green-700' : ''}">${esc(m.b)}</span> <span class="text-gray-500">${esc(m.sc)}</span></div>`).join('')}</div>`).join('');
+    return `<div class="mt-4"><h3 class="font-bold text-green-800 mb-1">Un torneo de ejemplo (uno de los posibles)</h3>
+        <div class="grid gap-2 mb-2" style="grid-template-columns:repeat(auto-fill,minmax(210px,1fr))">${tablas}</div>
+        <div class="grid gap-2" style="grid-template-columns:repeat(auto-fill,minmax(230px,1fr))">${rondas}</div>
+        ${e.campeon ? `<div class="mt-2 text-sm font-bold text-orange-700">🏆 Campeón de este ejemplo: ${esc(e.campeon)}</div>` : ''}</div>`;
+}
+function renderSimulador() {
+    const el = document.getElementById('tab_Simulador'); if (!el) return;
+    let cats = catsActivas().filter(c => getActivos(db, c).length >= 3);
+    if (!cats.includes(simUI.cat)) { simUI.cat = cats[0] || ''; simUI.res = null; simUI.ej = null; }
+    if (!cats.length) { el.innerHTML = `<div class="bg-white p-6 rounded-lg shadow-sm"><h2 class="text-xl font-bold text-green-700 mb-2">🔮 Simulador</h2><p class="text-sm text-gray-600">Inscribe al menos 3 jugadores en una categoría para poder simular.</p></div>`; return; }
+    let cat = simUI.cat, ents = semCalc(cat).ents, auto = simAuto(cat), ov = simUI.fuerza[cat] || {}, info = computeCat(cat);
+    let opts = (arr, sel, f) => arr.map(x => `<option value="${esc(x[0])}" ${String(x[0]) === String(sel) ? 'selected' : ''}>${esc(x[1])}</option>`).join('');
+    let jug = ents.map(e => `<tr><td class="p-1 border text-xs">${esc(e.name)}</td><td class="p-1 border text-xs text-gray-500">${esc(e.metas.map(nivelTxt).filter(x => x).join(' / ')) || 'sin datos de nivel'}</td><td class="p-1 border"><input type="number" min="0" max="100" data-sim="f" data-slot="${e.slot}" value="${ov[e.slot] != null ? ov[e.slot] : auto[e.slot]}" class="field text-center text-xs" style="width:4.5rem"></td></tr>`).join('');
+    // equilibrio de los grupos actuales
+    let fa = Object.assign({}, auto, ov), medias = info.groups.map(g => g.reduce((s, p) => s + (fa[p.slot] != null ? fa[p.slot] : 40), 0) / g.length);
+    let bal = medias.length > 1 ? `Nivel promedio por grupo: ${medias.map((m, i) => `${esc(gNombre(cat, i))} <b>${m.toFixed(0)}</b>`).join(' · ')} (diferencia entre el más fuerte y el más débil: <b>${(Math.max(...medias) - Math.min(...medias)).toFixed(0)}</b> puntos).` : '';
+    el.innerHTML = `<div class="bg-white p-4 rounded-lg shadow-sm">
+        <h2 class="text-xl font-bold text-green-700 mb-1">🔮 Simulador de escenarios</h2>
+        <p class="text-sm text-gray-600 mb-3">Juega muchos torneos de prueba con los jugadores, la siembra y los formatos reales de la categoría para ver probabilidades y situaciones posibles. <b>No modifica ningún dato del torneo.</b></p>
+        <div class="flex flex-wrap gap-3 items-end mb-3">
+            <div><label class="text-xs font-semibold text-gray-600">Categoría</label><select data-sim="cat" class="field text-sm">${opts(cats.map(c => [c, catTitulo(c) + ' (' + getActivos(db, c).length + ')']), cat)}</select></div>
+            <div><label class="text-xs font-semibold text-gray-600">Torneos a simular</label><select data-sim="runs" class="field text-sm">${opts([[200, '200'], [500, '500'], [1000, '1,000'], [2000, '2,000']], simUI.runs)}</select></div>
+            <div><label class="text-xs font-semibold text-gray-600">Peso del nivel</label><select data-sim="sens" class="field text-sm">${opts(Object.keys(SIM_SENS).map(k => [k, SIM_SENS[k]]), simUI.sens)}</select></div>
+            <div><label class="text-xs font-semibold text-gray-600">Probabilidad de que un jugador no se presente (%)</label><input type="number" min="0" max="50" data-sim="pbaja" value="${simUI.pBaja}" class="field text-center text-sm" style="width:5rem"></div>
+            <div><label class="text-xs font-semibold text-gray-600">Si no se presenta</label><select data-sim="tbaja" class="field text-sm">${opts([['sup', 'Suprimir (no cuenta)'], ['wo', 'Default a rivales']], simUI.tBaja)}</select></div>
+        </div>
+        <div class="flex flex-wrap gap-2 items-center mb-2">
+            <button onclick="simCorrer()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-bold shadow-sm" ${simUI.corriendo ? 'disabled' : ''}>▶ Simular torneos</button>
+            <button onclick="simEjemplo()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold shadow-sm" ${simUI.corriendo ? 'disabled' : ''}>🎲 Ver un torneo de ejemplo</button>
+            <button onclick="simRestablecer()" class="bg-gray-100 border border-gray-300 text-gray-700 px-3 py-2 rounded text-sm font-bold">↺ Nivel automático</button>
+            <span id="sim_prog" class="text-sm text-gray-600">${simUI.corriendo ? 'Simulando…' : ''}</span>
+        </div>
+        <p class="text-xs text-gray-500 mb-3">Grupos actuales: ${info.numGroups} (${info.groups.map(g => g.length).join(', ')} jugadores). ${bal}</p>
+        <details class="mb-2"><summary class="cursor-pointer text-sm font-bold text-green-800">Nivel de cada jugador (0-100, editable)</summary>
+            <p class="text-xs text-gray-500 my-1">Viene de la siembra (UTR, ranking, escalera). Cámbialo para probar escenarios como «¿y si este jugador es mejor de lo que dice su ranking?». Quienes no tienen datos parten de 40.</p>
+            <table class="border-collapse"><thead><tr class="bg-gray-100 text-xs text-gray-600"><th class="p-1 border text-left">Jugador / pareja</th><th class="p-1 border text-left">Datos</th><th class="p-1 border">Nivel</th></tr></thead><tbody>${jug}</tbody></table></details>
+        ${simHtmlRes(cat)}${simHtmlEj(cat)}</div>`;
+}
+document.addEventListener('change', ev => {
+    let t = ev.target; if (!t || !t.closest || !t.closest('#tab_Simulador') || !t.dataset.sim || simUI.corriendo) return;
+    let k = t.dataset.sim;
+    if (k === 'cat') { simUI.cat = t.value; simUI.res = null; simUI.ej = null; }
+    else if (k === 'runs') simUI.runs = parseInt(t.value) || 500;
+    else if (k === 'sens') simUI.sens = t.value;
+    else if (k === 'pbaja') simUI.pBaja = Math.max(0, Math.min(50, parseFloat(t.value) || 0));
+    else if (k === 'tbaja') simUI.tBaja = t.value;
+    else if (k === 'f') { let o = simUI.fuerza[simUI.cat] = simUI.fuerza[simUI.cat] || {}; o[t.dataset.slot] = Math.max(0, Math.min(100, parseFloat(t.value) || 0)); simUI.res = null; }
+    renderSimulador();
+});
+
 function openTab(tabName) {
     document.querySelectorAll('.tab-content, .tab-btn').forEach(el => el.classList.remove('active'));
     document.getElementById('tab_' + tabName).classList.add('active');
@@ -1143,6 +1374,7 @@ function openTab(tabName) {
     if (tabName === 'Perfiles') renderPerfiles();
     if (tabName === 'Capturistas') pintarCapturistas();
     if (tabName === 'Programacion') renderProg();
+    if (tabName === 'Simulador') renderSimulador();
 }
 
 /* ---------- Torneos: calendario anual y datos de cada torneo ---------- */
