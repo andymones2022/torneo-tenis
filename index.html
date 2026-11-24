@@ -41,6 +41,27 @@
         .win-row { background-color: #dcfce7 !important; font-weight: bold; }
         input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
         input[type="number"] { -moz-appearance: textfield; }
+        /* Vistas: clásica renovada y tipo app */
+        #cab_qr { display: flex; align-items: center; gap: 10px; background: #fff; border: 2px solid #16a34a; border-radius: 12px; padding: 6px 12px; cursor: pointer; text-align: left; }
+        #cab_qr:hover { background: #f0fdf4; }
+        #cab_qr svg { width: 84px; height: 84px; flex: none; }
+        .card-res { background: #fff; border-radius: 10px; padding: 8px 12px; box-shadow: 0 1px 2px rgba(0,0,0,.08); border-left: 4px solid #16a34a; }
+        .card-res b { display: block; font-size: 1.5rem; line-height: 1.2; color: #166534; }
+        .card-res span { font-size: .72rem; color: #6b7280; }
+        .card-res .barra { height: 5px; background: #e5e7eb; border-radius: 3px; margin-top: 4px; overflow: hidden; }
+        .card-res .barra i { display: block; height: 100%; background: #16a34a; }
+        #nav_app { display: none; }
+        body.vista-app #tabs-nav, body.vista-app #resumen_cards, body.vista-app h1 + p { display: none !important; }
+        body.vista-app { padding-bottom: 76px; }
+        body.vista-app #titulo_h1 { font-size: 1.5rem; margin-bottom: .5rem; }
+        body.vista-app #nav_app { display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; left: 0; right: 0; bottom: 0; background: #fff; border-top: 1px solid #d1d5db; z-index: 40; padding: 4px 0 calc(4px + env(safe-area-inset-bottom)); }
+        #nav_app button { background: none; border: 0; padding: 4px 0; font-size: .7rem; color: #4b5563; line-height: 1.2; }
+        #nav_app button span { display: block; font-size: 1.35rem; }
+        #nav_app button.on { color: #166534; font-weight: bold; }
+        .mi-partido { background: #fff; border-radius: 12px; padding: 12px; border: 1px solid #e5e7eb; margin-bottom: 8px; }
+        .mi-partido.prox { border: 2px solid #16a34a; }
+        .sheet-btn { display: block; width: 100%; text-align: left; padding: 12px 8px; border-bottom: 1px solid #e5e7eb; font-size: 1rem; background: none; }
+        @media print { #cab_extra, #resumen_cards, #nav_app { display: none !important; } }
     
 .grupo-input{background:transparent;border:0;border-bottom:2px dashed #16a34a;font:inherit;color:inherit;text-align:center;min-width:2ch;padding:0;outline:none}
 .grupo-input:hover{background:#dcfce7}.grupo-input:focus{background:#fff;border-bottom-style:solid}
@@ -50,6 +71,17 @@
 <div class="mx-auto p-4" style="max-width:1800px">
     <h1 id="titulo_h1" class="text-3xl font-bold text-center text-green-700 mb-2">Torneos de Tenis</h1>
     <p class="text-center text-sm text-gray-600 mb-6">Partidos a 8 juegos (7-7 se define con muerte súbita a 10 puntos y se anota 8-7). En cada categoría puedes cambiar a 2 de 3 sets. Los nombres se pueden corregir directamente en los partidos. (Usa ENTER para saltar)</p>
+
+    <div id="cab_extra" class="flex flex-wrap items-center justify-center gap-4 mb-3">
+        <button id="cab_qr" type="button" onclick="mostrarQR(ctxSitio())" style="display:none" title="Toca para ampliar o imprimir el cartel">
+            <span id="cab_qr_img"></span>
+            <span><b class="text-green-800 block">Escanea y sigue el torneo</b><span class="text-xs text-gray-500">Resultados, cuadros y horarios en tu celular</span><br><span class="text-xs text-blue-700 underline">Toca para ampliar</span></span>
+        </button>
+        <label class="text-sm text-gray-700">🎨 Vista
+            <select id="sel_vista" class="field" style="width:auto;display:inline-block" onchange="setVista(this.value)">
+                <option value="clasica">Clásica (computadora)</option><option value="app">Tipo app (celular)</option></select></label>
+    </div>
+    <div id="resumen_cards" class="grid gap-3 mb-4" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))"></div>
 
     <!-- Barra de estado de la nube (solo aparece si Firebase está configurado) -->
     <div id="barra_nube" class="flex-wrap items-center justify-center gap-3 text-sm mb-4 bg-white border border-gray-200 rounded p-2 shadow-sm" style="display:none">
@@ -61,7 +93,7 @@
     <div id="barra_alta" class="items-center justify-center gap-2 text-sm mb-4" style="display:none">
         <button id="btn_alta" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded font-bold">🪪 Registra tu perfil de jugador</button>
         <button id="btn_insc" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded font-bold">📝 Inscríbete a un torneo</button>
-        <button id="btn_qr" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded font-bold" title="Código QR del registro">📱 Ver QR</button>
+        <button id="btn_qr" class="bg-blue-100 hover:bg-blue-200 text-blue-900 border border-blue-400 px-3 py-1 rounded font-bold" title="Código QR del registro">📱 Ver QR de registro</button>
     </div>
 
     <div id="banner_hist" class="mb-3 p-3 rounded bg-amber-100 border border-amber-400 text-amber-900 text-sm font-bold flex flex-wrap items-center justify-center gap-3" style="display:none">
@@ -71,6 +103,7 @@
 
     <!-- Navegación -->
     <div class="flex flex-wrap border-b border-gray-300 mb-6" id="tabs-nav">
+        <button id="btn_Inicio" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Inicio')">🏠 Inicio</button>
         <button id="btn_Torneos" class="tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Torneos')">🏆 Torneos</button>
         <button id="btn_Inscripciones" class="solo-admin tab-btn active px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Inscripciones')">📝 Inscripciones</button>
         <button id="btn_Perfiles" class="solo-admin tab-btn px-4 py-2 text-gray-600 hover:text-green-700 transition" onclick="openTab('Perfiles')">🪪 Perfiles</button>
@@ -122,7 +155,17 @@
     <div id="modal_insc" class="fixed inset-0 overflow-y-auto bg-gray-100" style="display:none;z-index:60">
         <div id="insc_form" class="bg-white rounded-lg shadow-xl mx-auto my-4 p-4" style="max-width:860px;width:96%"></div>
     </div>
-    <div id="modal_qr" class="fixed inset-0 overflow-y-auto" style="display:none;z-index:55;background:rgba(0,0,0,.6)">
+    <nav id="nav_app" aria-label="Navegación">
+    <button id="na_Inicio" onclick="openTab('Inicio')"><span>🏠</span>Inicio</button>
+    <button id="na_cuadros" onclick="menuApp('cuadros')"><span>🏆</span>Cuadros</button>
+    <button id="na_Programacion" onclick="openTab('Programacion')"><span>📅</span>Horarios</button>
+    <button onclick="mostrarQR(ctxSitio())"><span>📱</span>QR</button>
+    <button onclick="menuApp('mas')"><span>☰</span>Más</button>
+</nav>
+<div id="sheet_app" style="display:none;position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.45)" onclick="if(event.target===this)cerrarSheet()">
+    <div id="sheet_app_body" style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:16px 16px 0 0;padding:12px 16px calc(16px + env(safe-area-inset-bottom));max-height:80vh;overflow-y:auto"></div>
+</div>
+<div id="modal_qr" class="fixed inset-0 overflow-y-auto" style="display:none;z-index:55;background:rgba(0,0,0,.6)">
         <div class="bg-white rounded-lg shadow-xl mx-auto my-8 p-5 text-center" style="max-width:420px;width:94%">
             <h2 id="qr_title" class="text-xl font-bold text-green-700 mb-1">Registro de jugadores</h2>
             <p id="qr_sub" class="text-sm text-gray-600 mb-2">Escanea con la cámara del celular para dar de alta tu perfil.</p>
@@ -136,6 +179,7 @@
     <!-- Pestaña Programación de horarios y asignación de canchas -->
     <div id="tab_Programacion" class="tab-content"></div>
     <div id="tab_Simulador" class="tab-content"></div>
+    <div id="tab_Inicio" class="tab-content"></div>
 
     <!-- Pestaña Capturistas (solo administradores, modo nube) -->
     <div id="tab_Capturistas" class="tab-content"></div>
@@ -569,6 +613,8 @@ function refrescarUI(forzar) {
         pintarCapturistas();
     } else if (act === 'Torneos') {
         if (forzar || !document.getElementById('tab_Torneos').contains(ae)) renderTorneos();
+    } else if (act === 'Inicio') {
+        renderInicio();
     } else if (act === 'Programacion') {
         if (forzar || !document.getElementById('tab_Programacion').contains(ae)) renderProg();
     } else if (act === 'Jugadores') {
@@ -604,7 +650,7 @@ function aplicarModo() {
     document.body.classList.toggle('viewer', !puedeEditar());
     pintarBarra();
     let act = tabActiva();
-    if (!puedeEditar() && !categorias.includes(act) && act !== 'Programacion' && act !== 'Torneos') openTab(catsActivas().find(c => getActivos(db, c).length) || 'Torneos');
+    if (!puedeEditar() && !categorias.includes(act) && act !== 'Programacion' && act !== 'Torneos' && act !== 'Inicio') openTab(catsActivas().find(c => getActivos(db, c).length) || 'Torneos');
     else refrescarUI(true);
 }
 
@@ -1375,6 +1421,8 @@ function openTab(tabName) {
     if (tabName === 'Capturistas') pintarCapturistas();
     if (tabName === 'Programacion') renderProg();
     if (tabName === 'Simulador') renderSimulador();
+    if (tabName === 'Inicio') renderInicio();
+    marcarNavApp();
 }
 
 /* ---------- Torneos: calendario anual y datos de cada torneo ---------- */
@@ -4091,6 +4139,105 @@ document.getElementById('cat-tabs').innerHTML = categorias.map(c => `<div id="ta
 pintarTabs();
 renderInscripciones();
 if (nube.activa) iniciarNube();
+
+/* ---------- Vistas (clásica / tipo app), QR visible, inicio y resumen ---------- */
+function ctxSitio() { return { titulo: 'Sigue el torneo', sub: 'Escanea con la cámara del celular para ver resultados, cuadros y horarios.', url: urlBase(), archivo: 'qr-torneo.png',
+    cartel: { titulo: '🎾 Sigue el torneo en tu celular', sub: (db.ajustes.torneo || '').trim() || 'Torneos de Tenis', url: urlBase(), nota: 'Escanea el código con la cámara de tu celular para ver resultados, cuadros y horarios en vivo.' } }; }
+function vistaActual() { return document.body.classList.contains('vista-app') ? 'app' : 'clasica'; }
+function setVista(v) {
+    v = v === 'app' ? 'app' : 'clasica';
+    try { localStorage.setItem('tm_vista', v); } catch (e) {}
+    document.body.classList.toggle('vista-app', v === 'app');
+    document.body.classList.toggle('vista-clasica', v !== 'app');
+    let sel = document.getElementById('sel_vista'); if (sel) sel.value = v;
+    if (v === 'app' && tabActiva() !== 'Inicio') openTab('Inicio');
+    else if (v !== 'app' && tabActiva() === 'Inicio') openTab(puedeEditar() ? 'Torneos' : (catsActivas().find(c => getActivos(db, c).length) || 'Torneos'));
+    pintarCabecera();
+}
+function marcarNavApp() {
+    let a = tabActiva();
+    ['Inicio', 'Programacion'].forEach(t => { let b = document.getElementById('na_' + t); if (b) b.classList.toggle('on', a === t); });
+    let c = document.getElementById('na_cuadros'); if (c) c.classList.toggle('on', categorias.includes(a));
+}
+function cerrarSheet() { document.getElementById('sheet_app').style.display = 'none'; }
+function irTab(t) { cerrarSheet(); openTab(t); }
+function menuApp(k) {
+    let it = [];
+    if (k === 'cuadros') {
+        let cs = catsActivas().filter(c => getActivos(db, c).length);
+        it = cs.length ? cs.map(c => [`🏆 ${esc(catTitulo(c))} <span class="text-xs text-gray-500">(${getActivos(db, c).length})</span>`, `irTab('${c}')`]) : [['Aún no hay jugadores inscritos', 'cerrarSheet()']];
+    } else {
+        it = [['🏆 Torneos', "irTab('Torneos')"], ['📅 Horarios y canchas', "irTab('Programacion')"]];
+        if (puedeEditar()) it.push(['📝 Inscripciones', "irTab('Inscripciones')"], ['🪪 Perfiles', "irTab('Perfiles')"], ['👥 Jugadores', "irTab('Jugadores')"], ['🔮 Simulador', "irTab('Simulador')"]);
+        if (nube.activa && puedeEditar()) it.push(['🔐 Capturistas', "irTab('Capturistas')"]);
+        it.push(['🧾 Resumen PDF', 'cerrarSheet();resumenPDF()'], ['🖥 Cambiar a vista clásica', "cerrarSheet();setVista('clasica')"]);
+        if (nube.activa && !nube.user) it.push(['🔑 Entrar (capturistas)', "cerrarSheet();abrirLogin()"]);
+    }
+    document.getElementById('sheet_app_body').innerHTML = `<div class="font-bold text-green-800 mb-1">${k === 'cuadros' ? 'Elige una categoría' : 'Más opciones'}</div>` + it.map(x => `<button class="sheet-btn" onclick="${x[1]}">${x[0]}</button>`).join('');
+    document.getElementById('sheet_app').style.display = 'block';
+}
+
+/* Partidos con su horario, para el resumen y el inicio */
+function simInfoPartidos() {
+    let hoy = fechaISO(new Date()), L = [];
+    try { L = todosLosPartidos(); } catch (e) { L = []; }
+    L.forEach(m => { let h = (db.horario[m.cat] || {})[m.key] || {}; m.d = h.d || ''; m.h = h.h || ''; m.c = h.c || ''; m.hoy = m.d === hoy; m.jugado = !!m.score && (esWO(m.score) || /\d/.test(m.score)); });
+    return L;
+}
+function textoMarcador(sc) { return esWO(sc) ? 'Default' : String(sc || '').replace(/\s*,\s*/g, ' · '); }
+let _cabT = 0;
+function pintarCabecera() {
+    clearTimeout(_cabT);
+    _cabT = setTimeout(() => {
+        let q = document.getElementById('cab_qr'), qi = document.getElementById('cab_qr_img');
+        if (q && /^https?:$/.test(location.protocol)) { if (!qi.dataset.u || qi.dataset.u !== urlBase()) { qi.dataset.u = urlBase(); try { qi.innerHTML = qrSvg(urlBase(), 3); } catch (e) {} } q.style.display = 'flex'; }
+        let rc = document.getElementById('resumen_cards');
+        if (rc && vistaActual() === 'clasica') {
+            let L = simInfoPartidos(), tot = L.length, jug = L.filter(m => m.jugado).length, hoy = L.filter(m => m.hoy).length, hoyJ = L.filter(m => m.hoy && m.jugado).length;
+            let np = catsActivas().reduce((n, c) => n + getActivos(db, c).length, 0), pct = tot ? Math.round(jug / tot * 100) : 0;
+            rc.innerHTML = `<div class="card-res"><b>${np}</b><span>Jugadores o parejas inscritos</span></div>
+                <div class="card-res"><b>${jug} / ${tot}</b><span>Partidos con resultado</span><div class="barra"><i style="width:${pct}%"></i></div></div>
+                <div class="card-res"><b>${hoy ? hoyJ + ' / ' + hoy : '—'}</b><span>Programados para hoy</span></div>
+                <div class="card-res" style="border-left-color:#f59e0b"><b style="color:#b45309">${tot - jug}</b><span>Pendientes de captura</span></div>`;
+        }
+    }, 150);
+}
+function renderInicio() {
+    let el = document.getElementById('tab_Inicio'); if (!el) return;
+    let yo = ''; try { yo = localStorage.getItem('tm_yo') || ''; } catch (e) {}
+    let nombres = []; catsActivas().forEach(c => getActivos(db, c).forEach(p => { if (!nombres.includes(p.name)) nombres.push(p.name); })); nombres.sort((a, b) => a.localeCompare(b, 'es'));
+    if (yo && !nombres.includes(yo)) yo = '';
+    let L = simInfoPartidos(), hoy = fechaISO(new Date());
+    const orden = (a, b) => (a.d || '9999').localeCompare(b.d || '9999') || (a.h || '99:99').localeCompare(b.h || '99:99');
+    const tarjeta = (m, prox) => {
+        let rival = yo ? (m.j1 === yo ? m.j2 : m.j1) : '', cuando = m.d ? `${m.d === hoy ? 'Hoy' : fechaCorta(m.d)}${m.h ? ' · ' + m.h : ''}${m.c ? ' · ' + esc(m.c) : ''}` : 'Sin horario asignado';
+        return `<div class="mi-partido ${prox ? 'prox' : ''}"><div class="text-xs ${prox ? 'text-green-700 font-bold' : 'text-gray-500'}">${prox ? 'Próximo · ' : ''}${cuando}</div>
+            <div class="font-bold text-base mt-1">${yo ? 'vs ' + esc(rival) : esc(m.j1) + ' vs ' + esc(m.j2)}</div>
+            <div class="text-xs text-gray-500">${esc(catTitulo(m.cat))} · ${esc(m.fase)}</div>
+            ${m.jugado ? `<div class="mt-1 font-bold text-green-700">Resultado: ${esc(textoMarcador(m.score))}</div>` : ''}</div>`;
+    };
+    let html = `<div class="max-w-3xl mx-auto"><div class="bg-white rounded-lg shadow-sm p-3 mb-3"><label class="text-xs font-semibold text-gray-600">Soy (para ver solo mis partidos)</label>
+        <select id="sel_yo" class="field" onchange="try{localStorage.setItem('tm_yo',this.value)}catch(e){};renderInicio()"><option value="">— Ver todos los partidos —</option>${nombres.map(n => `<option ${n === yo ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>`;
+    if (yo) {
+        let mios = L.filter(m => m.j1 === yo || m.j2 === yo), pend = mios.filter(m => !m.jugado).sort(orden), hechos = mios.filter(m => m.jugado);
+        html += `<h2 class="font-bold text-green-800 mb-2">Mis partidos</h2>` + (pend.length ? pend.map((m, i) => tarjeta(m, i === 0)).join('') : '<p class="text-sm text-gray-500 mb-2">No tienes partidos pendientes.</p>');
+        if (hechos.length) html += `<h3 class="font-bold text-gray-700 mt-3 mb-2">Ya jugados</h3>` + hechos.map(m => tarjeta(m, false)).join('');
+    } else {
+        let hoyL = L.filter(m => m.hoy).sort(orden), res = L.filter(m => m.jugado).slice(-8).reverse();
+        html += `<h2 class="font-bold text-green-800 mb-2">Partidos de hoy</h2>` + (hoyL.length ? hoyL.slice(0, 20).map(m => tarjeta(m, false)).join('') : '<p class="text-sm text-gray-500 mb-2">No hay partidos programados para hoy.</p>');
+        if (res.length) html += `<h3 class="font-bold text-gray-700 mt-3 mb-2">Últimos resultados</h3>` + res.map(m => tarjeta(m, false)).join('');
+    }
+    if (/^https?:$/.test(location.protocol)) html += `<button class="mi-partido flex items-center gap-3 w-full text-left mt-3" onclick="mostrarQR(ctxSitio())"><span style="width:72px;flex:none">${qrSvg(urlBase(), 3).replace('<svg', '<svg style="width:100%;height:auto"')}</span><span><b>Comparte el torneo</b><br><span class="text-xs text-gray-500">QR para amigos y familia. Toca para ampliar.</span></span></button>`;
+    el.innerHTML = html + '</div>';
+}
+(function () {
+    const ds = saveDB; saveDB = function () { const r = ds.apply(this, arguments); pintarCabecera(); return r; };
+    const dr = aplicarRemoto; aplicarRemoto = function () { const r = dr.apply(this, arguments); pintarCabecera(); return r; };
+    let v = null; try { v = localStorage.getItem('tm_vista'); } catch (e) {}
+    if (v !== 'app' && v !== 'clasica') v = (window.innerWidth < 768) ? 'app' : 'clasica';
+    setVista(v);
+    setInterval(() => { if (!document.hidden && tabActiva() === 'Inicio' && !(document.activeElement && document.activeElement.id === 'sel_yo')) renderInicio(); }, 30000);
+})();
 </script>
 <div id="barra_offline" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:60;background:#92400e;color:#fff;font-size:13px;font-weight:bold;text-align:center;padding:6px 10px">
     📴 Sin conexión: se muestran los últimos datos guardados. Los cambios en la nube se guardarán cuando vuelva el internet.</div>
