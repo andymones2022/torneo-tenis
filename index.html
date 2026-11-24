@@ -80,6 +80,7 @@
         <label class="text-sm text-gray-700">🎨 Vista
             <select id="sel_vista" class="field" style="width:auto;display:inline-block" onchange="setVista(this.value)">
                 <option value="clasica">Clásica (computadora)</option><option value="app">Tipo app (celular)</option></select></label>
+        <button id="btn_datos_torneo" type="button" class="solo-admin bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-bold text-sm shadow-sm" onclick="abrirDatosTorneo()">✏️ Datos del torneo y categorías</button>
     </div>
     <div id="resumen_cards" class="grid gap-3 mb-4" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))"></div>
 
@@ -4144,6 +4145,24 @@ if (nube.activa) iniciarNube();
 function ctxSitio() { return { titulo: 'Sigue el torneo', sub: 'Escanea con la cámara del celular para ver resultados, cuadros y horarios.', url: urlBase(), archivo: 'qr-torneo.png',
     cartel: { titulo: '🎾 Sigue el torneo en tu celular', sub: (db.ajustes.torneo || '').trim() || 'Torneos de Tenis', url: urlBase(), nota: 'Escanea el código con la cámara de tu celular para ver resultados, cuadros y horarios en vivo.' } }; }
 function vistaActual() { return document.body.classList.contains('vista-app') ? 'app' : 'clasica'; }
+/* Abre la ficha del torneo en operación (categorías, rama, nombres, fechas). Si el torneo vigente se capturó antes de existir
+   el calendario, solo tiene nombre y no tiene ficha: se crea conservando todo lo ya capturado. */
+function abrirDatosTorneo() {
+    if (!puedeEditar()) { alert('Para editar los datos del torneo entra como administrador (botón «Entrar»).'); return; }
+    if (hist) { alert('Estás consultando un torneo del histórico. Vuelve al torneo en operación.'); return; }
+    if (!torneoAct()) {
+        let nom = (db.ajustes.torneo || '').trim() || 'Torneo vigente';
+        if (!confirm('El torneo «' + nom + '» todavía no tiene ficha en el calendario de torneos; por eso solo aparecen las 5 categorías básicas y no se pueden editar sus datos.\n\n¿Crear ahora su ficha? Se conservan todas las inscripciones, marcadores y horarios ya capturados.')) return;
+        let cats = catsDefault();
+        categorias.forEach(c => { if (getActivos(db, c).length) cats[c].on = true; });
+        let id = nuevoTorneo({ nombre: nom, estado: 'En curso', cats });
+        db.activo = id; db.ajustes.torneo = nom;
+        saveDB(); pintarTabs();
+    }
+    torEdit = db.activo;
+    openTab('Torneos');
+    let t = document.getElementById('tab_Torneos'); if (t && t.scrollIntoView) t.scrollIntoView();
+}
 function setVista(v) {
     v = v === 'app' ? 'app' : 'clasica';
     try { localStorage.setItem('tm_vista', v); } catch (e) {}
@@ -4168,6 +4187,7 @@ function menuApp(k) {
         it = cs.length ? cs.map(c => [`🏆 ${esc(catTitulo(c))} <span class="text-xs text-gray-500">(${getActivos(db, c).length})</span>`, `irTab('${c}')`]) : [['Aún no hay jugadores inscritos', 'cerrarSheet()']];
     } else {
         it = [['🏆 Torneos', "irTab('Torneos')"], ['📅 Horarios y canchas', "irTab('Programacion')"]];
+        if (puedeEditar()) it.push(['✏️ Datos del torneo y categorías', 'cerrarSheet();abrirDatosTorneo()']);
         if (puedeEditar()) it.push(['📝 Inscripciones', "irTab('Inscripciones')"], ['🪪 Perfiles', "irTab('Perfiles')"], ['👥 Jugadores', "irTab('Jugadores')"], ['🔮 Simulador', "irTab('Simulador')"]);
         if (nube.activa && puedeEditar()) it.push(['🔐 Capturistas', "irTab('Capturistas')"]);
         it.push(['🧾 Resumen PDF', 'cerrarSheet();resumenPDF()'], ['🖥 Cambiar a vista clásica', "cerrarSheet();setVista('clasica')"]);
@@ -4191,6 +4211,8 @@ function pintarCabecera() {
     _cabT = setTimeout(() => {
         let q = document.getElementById('cab_qr'), qi = document.getElementById('cab_qr_img');
         if (q && /^https?:$/.test(location.protocol)) { if (!qi.dataset.u || qi.dataset.u !== urlBase()) { qi.dataset.u = urlBase(); try { qi.innerHTML = qrSvg(urlBase(), 3); } catch (e) {} } q.style.display = 'flex'; }
+        let bd = document.getElementById('btn_datos_torneo');
+        if (bd) bd.textContent = torneoAct() ? '✏️ Datos del torneo y categorías' : '✏️ Crear la ficha de «' + ((db.ajustes.torneo || '').trim() || 'este torneo') + '»';
         let rc = document.getElementById('resumen_cards');
         if (rc && vistaActual() === 'clasica') {
             let L = simInfoPartidos(), tot = L.length, jug = L.filter(m => m.jugado).length, hoy = L.filter(m => m.hoy).length, hoyJ = L.filter(m => m.hoy && m.jugado).length;
