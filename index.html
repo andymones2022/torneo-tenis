@@ -53,6 +53,7 @@
         #nav_app { display: none; }
         body.vista-app #tabs-nav, body.vista-app #resumen_cards, body.vista-app h1 + p { display: none !important; }
         body.vista-app { padding-bottom: 76px; }
+        body.vista-app #barra_offline { bottom: 62px !important; }
         body.vista-app #titulo_h1 { font-size: 1.5rem; margin-bottom: .5rem; }
         body.vista-app #nav_app { display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; left: 0; right: 0; bottom: 0; background: #fff; border-top: 1px solid #d1d5db; z-index: 40; padding: 4px 0 calc(4px + env(safe-area-inset-bottom)); }
         #nav_app button { background: none; border: 0; padding: 4px 0; font-size: .7rem; color: #4b5563; line-height: 1.2; }
@@ -4196,6 +4197,7 @@ function menuApp(k) {
         if (puedeEditar()) it.push(['✏️ Datos del torneo y categorías', 'cerrarSheet();abrirDatosTorneo()']);
         if (puedeEditar()) it.push(['📝 Inscripciones', "irTab('Inscripciones')"], ['🪪 Perfiles', "irTab('Perfiles')"], ['👥 Jugadores', "irTab('Jugadores')"], ['🔮 Simulador', "irTab('Simulador')"]);
         if (nube.activa && puedeEditar()) it.push(['🔐 Capturistas', "irTab('Capturistas')"]);
+        if (window.pwaPuedeInstalar && pwaPuedeInstalar()) it.unshift(['📲 Instalar la app en este dispositivo', 'cerrarSheet();pwaInstalar()']);
         it.push(['🧾 Resumen PDF', 'cerrarSheet();resumenPDF()'], ['🖥 Cambiar a vista clásica', "cerrarSheet();setVista('clasica')"]);
         if (nube.activa && !nube.user) it.push(['🔑 Entrar (capturistas)', "cerrarSheet();abrirLogin()"]);
     }
@@ -4244,7 +4246,7 @@ function renderInicio() {
             <div class="text-xs text-gray-500">${esc(catTitulo(m.cat))} · ${esc(m.fase)}</div>
             ${m.jugado ? `<div class="mt-1 font-bold text-green-700">Resultado: ${esc(textoMarcador(m.score))}</div>` : ''}</div>`;
     };
-    let html = `<div class="max-w-3xl mx-auto"><div class="bg-white rounded-lg shadow-sm p-3 mb-3"><label class="text-xs font-semibold text-gray-600">Soy (para ver solo mis partidos)</label>
+    let html = `<div class="max-w-3xl mx-auto">${window.pwaPuedeInstalar && pwaPuedeInstalar() ? '<button class="w-full mb-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg py-3 shadow-sm" onclick="pwaInstalar()">📲 Instalar la app en este dispositivo</button>' : ''}<div class="bg-white rounded-lg shadow-sm p-3 mb-3"><label class="text-xs font-semibold text-gray-600">Soy (para ver solo mis partidos)</label>
         <select id="sel_yo" class="field" onchange="try{localStorage.setItem('tm_yo',this.value)}catch(e){};renderInicio()"><option value="">— Ver todos los partidos —</option>${nombres.map(n => `<option ${n === yo ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>`;
     if (yo) {
         let mios = L.filter(m => m.j1 === yo || m.j2 === yo), pend = mios.filter(m => !m.jugado).sort(orden), hechos = mios.filter(m => m.jugado);
@@ -4258,6 +4260,7 @@ function renderInicio() {
     if (/^https?:$/.test(location.protocol)) html += `<button class="mi-partido flex items-center gap-3 w-full text-left mt-3" onclick="mostrarQR(ctxSitio())"><span style="width:72px;flex:none">${qrSvg(urlBase(), 3).replace('<svg', '<svg style="width:100%;height:auto"')}</span><span><b>Comparte el torneo</b><br><span class="text-xs text-gray-500">QR para amigos y familia. Toca para ampliar.</span></span></button>`;
     el.innerHTML = html + '</div>';
 }
+document.addEventListener('pwa-estado', () => { if (tabActiva() === 'Inicio') renderInicio(); });
 (function () {
     const ds = saveDB; saveDB = function () { const r = ds.apply(this, arguments); pintarCabecera(); return r; };
     const dr = aplicarRemoto; aplicarRemoto = function () { const r = dr.apply(this, arguments); pintarCabecera(); return r; };
@@ -4277,13 +4280,17 @@ function renderInicio() {
     var ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
     function conexion() { if (barra) barra.style.display = navigator.onLine === false ? 'block' : 'none'; }
     window.addEventListener('online', conexion); window.addEventListener('offline', conexion); conexion();
-    window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); evInst = e; if (btn && !standalone) btn.style.display = ''; });
-    window.addEventListener('appinstalled', function () { evInst = null; if (btn) btn.style.display = 'none'; });
+    function aviso() { try { document.dispatchEvent(new Event('pwa-estado')); } catch (x) {} }
+    window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); evInst = e; if (btn && !standalone) btn.style.display = ''; aviso(); });
+    window.addEventListener('appinstalled', function () { evInst = null; if (btn) btn.style.display = 'none'; aviso(); });
     if (ios && !standalone && btn) btn.style.display = '';
-    if (btn) btn.addEventListener('click', function () {
-        if (evInst) { evInst.prompt(); evInst.userChoice.then(function () { evInst = null; btn.style.display = 'none'; }); }
+    /* Disponibles también para la vista tipo app (donde la barra de pestañas no se muestra) */
+    window.pwaPuedeInstalar = function () { return !standalone && (!!evInst || ios); };
+    window.pwaInstalar = function () {
+        if (evInst) { evInst.prompt(); evInst.userChoice.then(function () { evInst = null; if (btn) btn.style.display = 'none'; aviso(); }); }
         else alert('Para instalar en iPhone o iPad: toca el botón Compartir de Safari y elige «Agregar a pantalla de inicio».');
-    });
+    };
+    if (btn) btn.addEventListener('click', window.pwaInstalar);
     if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
         window.addEventListener('load', function () {
             navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (r) { document.documentElement.dataset.sw = 'ok'; r.update(); }, function () { document.documentElement.dataset.sw = 'error'; });
