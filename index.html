@@ -692,7 +692,7 @@ function configurarEscuchas() {
         nube.bajas.push(api.onValue(R('privado'), s => { nube.priv = s.val() || {}; llego(); }, fallo));
         nube.bajas.push(api.onValue(R('marcadores'), s => { nube.marc = s.val() || {}; pintarCapturistas(); }, fallo));
         nube.bajas.push(api.onValue(R('inscripciones'), s => { perf.ins = s.val() || {}; insCambio(); }, () => {}));
-        nube.bajas.push(api.onValue(R('gest'), s => { perf.gest = s.val() || {}; insCambio(); }, () => {}));
+        nube.bajas.push(api.onValue(R('gest'), s => { perf.gest = s.val() || {}; autoPasarPendientes(); insCambio(); }, () => {}));
         nube.bajas.push(api.onValue(R('altas/solicitudes'), s => { perf.sol = s.val() || {}; perfilesCambio(); }, () => {}));
         nube.bajas.push(api.onValue(R('altas/abierto'), s => { perf.abierto = s.val() === true; perfilesCambio(); }, () => {}));
         nube.bajas.push(api.onValue(R('altas/contacto'), s => { perf.contacto = s.val() || ''; if (tabActiva() !== 'Perfiles') return; perfilesCambio(); }, () => {}));
@@ -2978,7 +2978,8 @@ function htmlInscripciones(tid) {
             <button class="tor-btn px-3 py-1 rounded text-xs font-bold bg-gray-200" data-acc="cerrarins">Cerrar panel</button></div></div>
         <div class="text-xs text-gray-600 mb-2">Estado: <b>${esc(T.estado || '')}</b>${cierreVencido(T) ? ' · <b class="text-red-700">la fecha de cierre ya pasó (el formulario público ya no recibe inscripciones)</b>' : ''} · Cuota: <b>${esc(cuotaTxt(T) || 'sin definir (captúrala en Editar → Cooperación)')}</b>${/pareja/i.test(T.coopNota || '') ? ' (por pareja: se divide entre los dos jugadores)' : ''} · ${nIns} solicitud(es)</div>
         <div class="flex flex-wrap gap-3 items-center p-2 rounded bg-blue-50 text-sm mb-2"><span>Confirmados: cuota <b>${pesos(total.esp)}</b> · cobrado <b class="text-green-700">${pesos(total.cob)}</b> · por cobrar <b class="text-red-700">${pesos(Math.max(0, total.esp - total.cob))}</b></span>
-            <button class="tor-btn ml-auto px-3 py-1 rounded text-xs font-bold bg-green-600 text-white" data-acc="pasar" data-id="${tid}" title="Pone a los confirmados en las categorías del torneo en operación">Pasar confirmados a las categorías</button></div>
+            <button class="tor-btn ml-auto px-3 py-1 rounded text-xs font-bold bg-green-600 text-white" data-acc="pasar" data-id="${tid}" title="Pone a los confirmados en las categorías del torneo en operación">Pasar confirmados a las categorías</button>
+            <label class="text-xs text-gray-700 w-full" title="Al marcar «Confirmada», el jugador entra solo a su categoría, a los grupos y a la programación"><input type="checkbox" ${autoPasarOn() ? 'checked' : ''} onchange="try{localStorage.setItem('tm_autopasar',this.checked?'1':'0')}catch(e){}"> Pasar a la categoría automáticamente al marcar «Confirmada» (solo con el torneo en operación)</label></div>
         <div class="flex flex-wrap gap-2 items-end text-xs p-2 border rounded mb-2"><div class="font-bold w-full text-gray-700">＋ Inscribir a un jugador yo mismo (sin QR)</div>
             <input id="im_perfil" list="im_dl" class="field text-sm" style="max-width:260px" placeholder="Nombre del jugador con perfil"><datalist id="im_dl">${nombresDL}</datalist>
             <select id="im_cat" class="border rounded p-1 text-sm">${cats.map(c => `<option value="${c}">${esc(catNomK(T.cats[c], c))} · ${PRUEBAS[modPrueba(T.cats[c])]}</option>`).join('')}</select>
@@ -3001,14 +3002,17 @@ async function insManual(tid) {
     else up['inscripciones/' + tid + '/i' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36)] = { ts: Date.now(), aut: true, adm: true, pid: id, nombre: m.nombre, nac: m.nac || '2000-01-01', sexo: m.sexo || '', tel: m.tel || '-', p: { [c]: x } };
     try { await nube.api.update(nube.api.ref(nube.rtdb), up); document.getElementById('im_perfil').value = ''; document.getElementById('im_par').value = ''; } catch (e) { alert('No se pudo inscribir: ' + e.message); }
 }
-function pasarConfirmados(tid) {
-    if (tid !== db.activo || hist) { alert('Para pasar a los confirmados a las categorías, primero pon este torneo "en operación" (botón en el calendario).'); return; }
-    let T = db.torneos[tid], n = 0, omit = [];
+/* Misma pareja aunque los nombres vengan en distinto orden (A / B = B / A) */
+function claveNom(x) { return normN(x || '').split('/').map(t => t.trim()).filter(t => t).sort().join('/'); }
+function pasarConfirmados(tid, filtro, auto) {
+    if (tid !== db.activo || hist) { if (!auto) alert('Para pasar a los confirmados a las categorías, primero pon este torneo "en operación" (botón en el calendario).'); return 0; }
+    let T = db.torneos[tid], n = 0, omit = [], nombresPasados = [];
     categorias.forEach(c => {
         if (!(T.cats && T.cats[c] && T.cats[c].on)) return;
-        let D = catModo(c) === 'D', rows = filasCat(tid, c), hechos = new Set();
-        let ya = new Set((db.jugadores[c] || []).map(x => normN(x)).filter(x => x));
-        rows.filter(f => f.g.e === 'C').forEach(f => {
+        let D = catModo(c) === 'D', rows = filasCat(tid, c), hechos = new Set(), okRiesgo = null;
+        let riesgo = Object.keys(db.scores[c] || {}).length > 0 || Object.keys(db.horario[c] || {}).length > 0;
+        let ya = new Set((db.jugadores[c] || []).map(x => claveNom(x)).filter(x => x));
+        rows.filter(f => f.g.e === 'C' && (!filtro || filtro(f))).forEach(f => {
             let nombre, ids = f.pf.id ? [f.pf.id] : [];
             if (!D) nombre = f.nom;
             else {
@@ -3018,16 +3022,40 @@ function pasarConfirmados(tid) {
                 let key = [f.id, p.rid || normN(p.nom)].sort().join('|'); if (hechos.has(key)) return; hechos.add(key);
                 nombre = f.nom + ' / ' + p.nom; if (p.pid) ids.push(p.pid);
             }
-            if (ya.has(normN(nombre))) return;
+            if (ya.has(claveNom(nombre))) return;
+            if (auto && riesgo) {
+                if (okRiesgo === null) okRiesgo = confirm('«' + catTitulo(c) + '» ya tiene marcadores o horarios capturados.\n\nSi entra «' + nombre + '» los grupos se repartirán de nuevo y se pueden mover partidos y resultados.\n\n¿Pasarlo ahora a la categoría?\n(Si cancelas, podrás pasarlo después con «Pasar confirmados a las categorías».)');
+                if (!okRiesgo) { omit.push(nombre + ': pendiente (la categoría ya tiene partidos)'); return; }
+            }
             let slot = db.jugadores[c].findIndex(x => !x);
             if (slot < 0) { omit.push(nombre + ': no hay lugar en la categoría'); return; }
-            db.jugadores[c][slot] = nombre; ya.add(normN(nombre));
+            db.jugadores[c][slot] = nombre; ya.add(claveNom(nombre)); nombresPasados.push(nombre + ' → ' + catTitulo(c));
             if (ids.length) { db.vinc[c][slot] = ids.join(','); }
             n++;
         });
     });
-    saveDB(); pintarTabs();
+    if (n) { saveDB(); pintarTabs(); }
+    if (auto) { if (n) avisoFlotante('✔ Pasó a su categoría: ' + nombresPasados.join(', ')); return n; }
     alert(`Se pasaron ${n} inscripción(es) a las categorías.` + (omit.length ? `\n\nNo se pasaron:\n- ${omit.join('\n- ')}` : ''));
+    return n;
+}
+function avisoFlotante(msg) {
+    let d = document.createElement('div');
+    d.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:90px;z-index:80;background:#166534;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;font-weight:bold;max-width:90vw;box-shadow:0 4px 12px rgba(0,0,0,.3)';
+    d.textContent = msg; document.body.appendChild(d); setTimeout(() => d.remove(), 5000);
+}
+/* Al marcar «Confirmada», el jugador (o la pareja, cuando ya están los dos) pasa solo a su categoría y entra a grupos y programación */
+const _miCambio = {};
+function autoPasarOn() { try { return localStorage.getItem('tm_autopasar') !== '0'; } catch (e) { return true; } }
+function autoPasarPendientes() {
+    let ahora = Date.now();
+    Object.keys(_miCambio).forEach(k => {
+        if (ahora - _miCambio[k] > 15000) { delete _miCambio[k]; return; }
+        let [tid, id, c] = k.split('|');
+        if (gestDe(tid, id, c).e !== 'C') return;
+        delete _miCambio[k];
+        if (autoPasarOn() && puedeEditar()) pasarConfirmados(tid, f => f.id === id && f.c === c, true);
+    });
 }
 function textoInsWA(tid, f) {
     let T = db.torneos[tid], k = T.cats[f.c], e = f.g.e || 'S', cat = catNomK(k, f.c) + ' (' + PRUEBAS[modPrueba(k)].toLowerCase() + ')';
@@ -3048,7 +3076,8 @@ document.addEventListener('change', async e => {
             let rows = filasCat(tid, c), conf = rows.filter(f => f.g.e === 'C' && f.id !== id).length, M = modPrueba(T.cats[c]), usados = M === 'S' ? conf : Math.ceil((conf + 1) / 2);
             if (usados > cupo && confirm(`La categoría ya llegó al cupo (${cupo}). ¿Dejar a este jugador en lista de espera?`)) v = 'L';
         }
-        await gestSet(tid, id, c, { e: v }); return;
+        if (v === 'C') _miCambio[tid + '|' + id + '|' + c] = Date.now();
+        await gestSet(tid, id, c, { e: v }); setTimeout(autoPasarPendientes, 50); return;
     }
     if (t.classList.contains('ins-m')) { await gestSet(tid, id, c, { m: t.value === '' ? null : parseFloat(t.value) }); return; }
     if (t.classList.contains('ins-ab')) { let v = t.value === '' ? null : parseFloat(t.value); await gestSet(tid, id, c, { ab: v, fp: v ? new Date().toISOString().slice(0, 10) : null }); return; }
