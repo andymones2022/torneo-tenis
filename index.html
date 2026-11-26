@@ -42,9 +42,18 @@
         input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
         input[type="number"] { -moz-appearance: textfield; }
         /* Vistas: clásica renovada y tipo app */
-        #cab_qr { display: flex; align-items: center; gap: 10px; background: #fff; border: 2px solid #16a34a; border-radius: 12px; padding: 6px 12px; cursor: pointer; text-align: left; }
-        #cab_qr:hover { background: #f0fdf4; }
-        #cab_qr svg { width: 84px; height: 84px; flex: none; }
+        #cab_ins { display: none; align-items: center; gap: 18px; background: #fff7ed; border: 4px solid #ea580c; border-radius: 18px; padding: 14px 22px; cursor: pointer; text-align: left; box-shadow: 0 4px 14px rgba(234,88,12,.25); }
+        #cab_ins:hover { background: #ffedd5; }
+        #cab_ins svg { width: 190px; height: 190px; flex: none; background: #fff; border-radius: 6px; }
+        #cab_ins .t1 { display: block; font-size: 1.5rem; font-weight: 800; color: #c2410c; line-height: 1.1; }
+        #cab_ins .t2 { display: block; font-size: 1.15rem; font-weight: 700; color: #111827; margin-top: 4px; }
+        #cab_ins .t3 { display: block; font-size: .85rem; color: #6b7280; margin-top: 4px; }
+        @media (max-width: 520px) { #cab_ins { flex-direction: column; text-align: center; } #cab_ins svg { width: 230px; height: 230px; } }
+        .cab-peq { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #d1d5db; border-radius: 10px; padding: 4px 10px; cursor: pointer; text-align: left; font-size: .72rem; color: #4b5563; }
+        .cab-peq:hover { background: #f3f4f6; }
+        .cab-peq svg { width: 52px; height: 52px; flex: none; }
+        .cab-peq b { display: block; font-size: .78rem; color: #166534; }
+        .sc-pend { background: #fef3c7 !important; border-color: #f59e0b !important; }
         .card-res { background: #fff; border-radius: 10px; padding: 8px 12px; box-shadow: 0 1px 2px rgba(0,0,0,.08); border-left: 4px solid #16a34a; }
         .card-res b { display: block; font-size: 1.5rem; line-height: 1.2; color: #166534; }
         .card-res span { font-size: .72rem; color: #6b7280; }
@@ -74,10 +83,11 @@
     <p class="text-center text-sm text-gray-600 mb-6">Partidos a 8 juegos (7-7 se define con muerte súbita a 10 puntos y se anota 8-7). En cada categoría puedes cambiar a 2 de 3 sets. Los nombres se pueden corregir directamente en los partidos. (Usa ENTER para saltar)</p>
 
     <div id="cab_extra" class="flex flex-wrap items-center justify-center gap-4 mb-3">
-        <button id="cab_qr" type="button" onclick="mostrarQR(ctxSitio())" style="display:none" title="Toca para ampliar o imprimir el cartel">
-            <span id="cab_qr_img"></span>
-            <span><b class="text-green-800 block">Escanea y sigue el torneo</b><span class="text-xs text-gray-500">Resultados, cuadros y horarios en tu celular</span><br><span class="text-xs text-blue-700 underline">Toca para ampliar</span></span>
-        </button>
+        <button id="cab_ins" type="button" onclick="mostrarQR(ctxTorneo(torneoAct(), db.activo))" title="Toca para ampliar o imprimir el cartel de inscripción"></button>
+        <div class="flex flex-wrap items-center justify-center gap-2">
+            <button id="cab_qr" class="cab-peq" type="button" onclick="mostrarQR(ctxSitio())" style="display:none" title="QR para seguir resultados, cuadros y horarios"><span id="cab_qr_img"></span><span><b>Sigue el torneo</b>Resultados y horarios</span></button>
+            <button id="cab_alta" class="cab-peq" type="button" onclick="mostrarQR(ctxAlta())" style="display:none" title="QR para crear un perfil de jugador (pide más datos y NO inscribe a ningún torneo)"><span id="cab_alta_img"></span><span><b>Crear perfil de jugador</b>No inscribe al torneo</span></button>
+        </div>
         <label class="text-sm text-gray-700">🎨 Vista
             <select id="sel_vista" class="field" style="width:auto;display:inline-block" onchange="setVista(this.value)">
                 <option value="clasica">Clásica (computadora)</option><option value="app">Tipo app (celular)</option></select></label>
@@ -95,7 +105,7 @@
     <div id="barra_alta" class="items-center justify-center gap-2 text-sm mb-4" style="display:none">
         <button id="btn_alta" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded font-bold">🪪 Registra tu perfil de jugador</button>
         <button id="btn_insc" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded font-bold">📝 Inscríbete a un torneo</button>
-        <button id="btn_qr" class="bg-blue-100 hover:bg-blue-200 text-blue-900 border border-blue-400 px-3 py-1 rounded font-bold" title="Código QR del registro">📱 Ver QR de registro</button>
+        <button id="btn_qr" class="bg-blue-100 hover:bg-blue-200 text-blue-900 border border-blue-400 px-3 py-1 rounded font-bold" title="QR para crear perfil de jugador (no inscribe a ningún torneo)">📱 QR para crear perfil</button>
     </div>
 
     <div id="banner_hist" class="mb-3 p-3 rounded bg-amber-100 border border-amber-400 text-amber-900 text-sm font-bold flex flex-wrap items-center justify-center gap-3" style="display:none">
@@ -2960,6 +2970,7 @@ function htmlInscripciones(tid) {
                     par = p ? `${esc(p.nom)} ${p.mutua ? '<span class="text-green-700" title="Ambos se nombraron">✔ confirmada</span>' : '<span class="text-amber-700">⏳ sin confirmar</span>'}` : '<span class="text-red-700">sin pareja</span>';
                     if (!p || !p.mutua) par += `<div><select class="ins-pj border rounded p-0.5" data-t="${tid}" data-id="${f.id}" data-c="${c}"><option value="">Emparejar con…</option>${libres.map(x => `<option value="${x.id}">${esc(x.nom)}</option>`).join('')}</select>${p && p.pid && perf.meta[p.pid] && (perf.meta[p.pid].tel) ? ` <button class="ins-wapar underline text-green-700" data-t="${tid}" data-id="${f.id}" data-c="${c}">avisar a su pareja</button>` : ''}</div>`;
                 }
+                if (M !== 'S' && (!f.par || !f.par.mutua)) par += htmlAsignar(tid, c, f, rows, k);
                 return `<tr class="border-b align-top"><td class="p-1 border"><div class="font-bold">${esc(f.nom)}</div><div>${chip}</div>${pf.id && nivelTxt(perf.meta[pf.id]) ? `<div class="text-purple-800" title="Escalera · rankings · UTR">🌱 ${esc(nivelTxt(perf.meta[pf.id]))}</div>` : ''}${(M !== 'S' && pf.id && f.par && f.par.pid && perf.meta[f.par.pid] && parAviso(perf.meta[pf.id], perf.meta[f.par.pid], semCfg(T))) ? `<div class="text-amber-700">⚠ pareja con niveles distintos: ${esc(parAviso(perf.meta[pf.id], perf.meta[f.par.pid], semCfg(T)))}</div>` : ''}<div class="text-gray-500">📱 ${esc(f.r.tel || '')}${f.r.tutor ? ' · tutor: ' + esc(f.r.tutor) : ''}${edadDe(f.r.nac) !== '' && edadDe(f.r.nac) < 18 ? ' <b class="text-amber-700">menor</b>' : ''}</div></td>
                     <td class="p-1 border">${par}</td>
                     <td class="p-1 border"><select class="ins-e border rounded p-0.5" data-t="${tid}" data-id="${f.id}" data-c="${c}">${Object.keys(ESTADOS_INS).map(v => opt(v, ESTADOS_INS[v], e)).join('')}</select></td>
@@ -2988,6 +2999,33 @@ function htmlInscripciones(tid) {
         ${h || '<p class="text-sm text-gray-500 py-4 text-center">Todavía no hay solicitudes de inscripción.</p>'}
         <p class="text-xs text-gray-500 mt-3">La regla por jugador es una prueba de cada modalidad (singles, dobles y dobles mixtos). El formulario público lo aplica; aquí tú confirmas. Nada cuenta como inscrito hasta que lo marcas "Confirmada".</p></div>`;
 }
+/* Compañeros posibles desde Perfiles: misma rama y nivel parecido (escalera, UTR, rankings) */
+function distNivel(a, b) {
+    for (const k of ['esc', 'utr', 'nac', 'reg']) { let x = valCrit(a, k), y = valCrit(b, k); if (x != null && y != null) return [ ['esc', 'utr', 'nac', 'reg'].indexOf(k), Math.abs(x - y) ]; }
+    return [9, 0];
+}
+function htmlAsignar(tid, c, f, rows, k) {
+    if (!perf.listo || !f.pf || !f.pf.id) return '';
+    let mia = perf.meta[f.pf.id], usados = new Set(listaIns(tid).filter(x => x.r.p && x.r.p[c]).map(x => perfilDeIns(x.r).id).filter(x => x));
+    let rama = k && k.rama, cand = Object.keys(perf.meta).filter(i => i !== f.pf.id && !usados.has(i)).filter(i => {
+        let sx = perf.meta[i].sexo; if (!rama || !sx) return true;
+        return rama === 'M' ? (mia && mia.sexo ? sx !== mia.sexo : true) : sx === rama;
+    }).map(i => ({ i, d: distNivel(mia, perf.meta[i]) })).sort((x, y) => x.d[0] - y.d[0] || x.d[1] - y.d[1] || String(perf.meta[x.i].nombre).localeCompare(perf.meta[y.i].nombre, 'es')).slice(0, 40);
+    if (!cand.length) return '';
+    return `<div class="mt-1"><select class="ins-asig border rounded p-0.5 text-amber-900 bg-amber-50" data-t="${tid}" data-id="${f.id}" data-c="${c}" title="Elige a alguien de Perfiles con nivel parecido; queda inscrito y confirmado como su pareja"><option value="">Asignar compañero de Perfiles…</option>${cand.map(x => `<option value="${x.i}">${esc(perf.meta[x.i].nombre)}${nivelTxt(perf.meta[x.i]) ? ' · ' + esc(nivelTxt(perf.meta[x.i])) : ''}</option>`).join('')}</select></div>`;
+}
+async function asignarCompanero(tid, id, c, pid) {
+    let T = db.torneos[tid], m = perf.meta[pid], f = filasCat(tid, c).find(x => x.id === id); if (!T || !m || !f) return;
+    if (!confirm('¿Inscribir a «' + m.nombre + '» como pareja de «' + f.nom + '» y confirmar a los dos?')) return;
+    let M = modPrueba(T.cats[c]), existente = listaIns(tid).find(z => perfilDeIns(z.r).id === pid);
+    let nid = existente ? existente.id : 'i' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36), x = { m: M, par: f.nom }, up = {};
+    if (existente) up['inscripciones/' + tid + '/' + nid + '/p/' + c] = x;
+    else up['inscripciones/' + tid + '/' + nid] = { ts: Date.now(), aut: true, adm: true, pid, nombre: m.nombre, nac: m.nac || '2000-01-01', sexo: m.sexo || '', tel: m.tel || '-', p: { [c]: x } };
+    try { await nube.api.update(nube.api.ref(nube.rtdb), up); } catch (e) { alert('No se pudo inscribir: ' + e.message); return; }
+    _miCambio[tid + '|' + nid + '|' + c] = Date.now(); _miCambio[tid + '|' + id + '|' + c] = Date.now();
+    await gestSet(tid, nid, c, { e: 'C', pj: id }); await gestSet(tid, id, c, { e: 'C', pj: nid });
+    setTimeout(autoPasarPendientes, 300);
+}
 async function insManual(tid) {
     let T = db.torneos[tid], txt = (document.getElementById('im_perfil').value || '').split(' · ')[0].trim(), c = document.getElementById('im_cat').value, par = (document.getElementById('im_par').value || '').trim();
     if (!txt || !c) { alert('Escribe el nombre de un jugador que ya tenga perfil y elige la categoría.'); return; }
@@ -3004,6 +3042,7 @@ async function insManual(tid) {
 }
 /* Misma pareja aunque los nombres vengan en distinto orden (A / B = B / A) */
 function claveNom(x) { return normN(x || '').split('/').map(t => t.trim()).filter(t => t).sort().join('/'); }
+const SE_BUSCA = 'SE BUSCA COMPAÑERO';
 function pasarConfirmados(tid, filtro, auto) {
     if (tid !== db.activo || hist) { if (!auto) alert('Para pasar a los confirmados a las categorías, primero pon este torneo "en operación" (botón en el calendario).'); return 0; }
     let T = db.torneos[tid], n = 0, omit = [], nombresPasados = [];
@@ -3014,15 +3053,27 @@ function pasarConfirmados(tid, filtro, auto) {
         let ya = new Set((db.jugadores[c] || []).map(x => claveNom(x)).filter(x => x));
         rows.filter(f => f.g.e === 'C' && (!filtro || filtro(f))).forEach(f => {
             let nombre, ids = f.pf.id ? [f.pf.id] : [];
+            let reemplazar = [];
             if (!D) nombre = f.nom;
             else {
                 let p = f.par;
-                if (!p) { omit.push(f.nom + ': sin pareja'); return; }
-                if (p.row && p.row.g.e !== 'C') { omit.push(f.nom + ' / ' + p.nom + ': la pareja aún no está confirmada'); return; }
-                let key = [f.id, p.rid || normN(p.nom)].sort().join('|'); if (hechos.has(key)) return; hechos.add(key);
-                nombre = f.nom + ' / ' + p.nom; if (p.pid) ids.push(p.pid);
+                if (!p || (p.row && p.row.g.e !== 'C')) {
+                    let fn = claveNom(f.nom);
+                    if ((db.jugadores[c] || []).some(x => x && !/SE BUSCA/i.test(x) && x.split('/').some(t => claveNom(t) === fn))) return;   /* ya juega en una pareja de esta categoría */
+                    nombre = f.nom + ' / ' + SE_BUSCA; }   /* entra a la lista mientras llega su compañero */
+                else {
+                    let key = [f.id, p.rid || normN(p.nom)].sort().join('|'); if (hechos.has(key)) return; hechos.add(key);
+                    nombre = f.nom + ' / ' + p.nom; if (p.pid) ids.push(p.pid);
+                    reemplazar = [claveNom(f.nom + ' / ' + SE_BUSCA), claveNom(p.nom + ' / ' + SE_BUSCA)];
+                }
             }
             if (ya.has(claveNom(nombre))) return;
+            let slotRe = -1;
+            if (reemplazar.length) {
+                let idx = []; (db.jugadores[c] || []).forEach((x, i) => { if (x && reemplazar.includes(claveNom(x))) idx.push(i); });
+                if (idx.length) { slotRe = idx[0]; idx.slice(1).forEach(i => { db.jugadores[c][i] = ''; if (db.vinc[c]) delete db.vinc[c][i]; }); }
+            }
+            if (slotRe >= 0) { db.jugadores[c][slotRe] = nombre; ya.add(claveNom(nombre)); if (ids.length) db.vinc[c][slotRe] = ids.join(','); nombresPasados.push(nombre + ' → ' + catTitulo(c)); n++; return; }
             if (auto && riesgo) {
                 if (okRiesgo === null) okRiesgo = confirm('«' + catTitulo(c) + '» ya tiene marcadores o horarios capturados.\n\nSi entra «' + nombre + '» los grupos se repartirán de nuevo y se pueden mover partidos y resultados.\n\n¿Pasarlo ahora a la categoría?\n(Si cancelas, podrás pasarlo después con «Pasar confirmados a las categorías».)');
                 if (!okRiesgo) { omit.push(nombre + ': pendiente (la categoría ya tiene partidos)'); return; }
@@ -3082,7 +3133,8 @@ document.addEventListener('change', async e => {
     if (t.classList.contains('ins-m')) { await gestSet(tid, id, c, { m: t.value === '' ? null : parseFloat(t.value) }); return; }
     if (t.classList.contains('ins-ab')) { let v = t.value === '' ? null : parseFloat(t.value); await gestSet(tid, id, c, { ab: v, fp: v ? new Date().toISOString().slice(0, 10) : null }); return; }
     if (t.classList.contains('ins-mt')) { await gestSet(tid, id, c, { mt: t.value }); return; }
-    if (t.classList.contains('ins-pj') && t.value) { await gestSet(tid, id, c, { pj: t.value }); await gestSet(tid, t.value, c, { pj: id }); return; }
+    if (t.classList.contains('ins-asig') && t.value) { let pid = t.value; t.value = ''; await asignarCompanero(tid, id, c, pid); return; }
+    if (t.classList.contains('ins-pj') && t.value) { await gestSet(tid, id, c, { pj: t.value }); await gestSet(tid, t.value, c, { pj: id }); _miCambio[tid + '|' + id + '|' + c] = Date.now(); _miCambio[tid + '|' + t.value + '|' + c] = Date.now(); setTimeout(autoPasarPendientes, 300); return; }
 });
 document.addEventListener('click', async e => {
     let t = e.target; if (!t.classList || !t.dataset || !t.dataset.t) return;
@@ -3582,7 +3634,7 @@ function copiarEnvio() {
 /* ---------- Construcción de la interfaz ---------- */
 function nameInput(cat, p, extra) {
     // Área de texto de un renglón que crece a dos o más cuando el nombre es largo (así no se recorta)
-    return `<textarea rows="1" class="name-edit ${extra || ''}" data-cat="${cat}" data-slot="${p.slot}" title="Clic para corregir el nombre">${esc(p.name)}</textarea>`;
+    return `<textarea rows="1" class="name-edit ${/SE BUSCA COMPA/i.test(p.name) ? 'sc-pend ' : ''}${extra || ''}" data-cat="${cat}" data-slot="${p.slot}" title="Clic para corregir el nombre">${esc(p.name)}</textarea>`;
 }
 /* Ajusta la altura de los nombres a su contenido (para navegadores sin field-sizing) */
 function autoAlto(raiz) {
@@ -4246,8 +4298,19 @@ let _cabT = 0;
 function pintarCabecera() {
     clearTimeout(_cabT);
     _cabT = setTimeout(() => {
-        let q = document.getElementById('cab_qr'), qi = document.getElementById('cab_qr_img');
-        if (q && /^https?:$/.test(location.protocol)) { if (!qi.dataset.u || qi.dataset.u !== urlBase()) { qi.dataset.u = urlBase(); try { qi.innerHTML = qrSvg(urlBase(), 3); } catch (e) {} } q.style.display = 'flex'; }
+        let web = /^https?:$/.test(location.protocol), T = torneoAct();
+        const qrEn = (id, url, esc_) => { let el = document.getElementById(id); if (el && el.dataset.u !== url) { el.dataset.u = url; try { el.innerHTML = qrSvg(url, esc_); } catch (e) {} } };
+        let q = document.getElementById('cab_qr'); if (q) { if (web) qrEn('cab_qr_img', urlBase(), 2); q.style.display = web ? 'flex' : 'none'; }
+        let qa = document.getElementById('cab_alta'); if (qa) { if (web && nube.activa) qrEn('cab_alta_img', urlAlta(), 2); qa.style.display = (web && nube.activa) ? 'flex' : 'none'; }
+        /* QR grande de inscripción: solo mientras el torneo vigente tiene las inscripciones abiertas */
+        let ci = document.getElementById('cab_ins');
+        if (ci) {
+            if (web && nube.activa && T && insAbierta(T)) {
+                let cierre = T.cierre ? 'Inscripciones hasta el ' + fechaCorta(String(T.cierre).slice(0, 10)) + ', ' + String(T.cierre).slice(11, 16) + ' h' : '';
+                ci.innerHTML = '<span>' + qrSvg(urlIns(db.activo), 4) + '</span><span><span class="t1">📝 INSCRÍBETE<br>AL TORNEO</span><span class="t2">' + esc(T.nombre || '') + '</span>' + (cierre ? '<span class="t3">' + esc(cierre) + '</span>' : '') + '<span class="t3">Escanea con la cámara · toca para ampliar</span></span>';
+                ci.style.display = 'flex';
+            } else { ci.style.display = 'none'; ci.innerHTML = ''; }
+        }
         let bd = document.getElementById('btn_datos_torneo');
         if (bd) bd.textContent = torneoAct() ? '✏️ Datos del torneo y categorías' : '✏️ Crear la ficha de «' + ((db.ajustes.torneo || '').trim() || 'este torneo') + '»';
         let rc = document.getElementById('resumen_cards');
@@ -4275,7 +4338,9 @@ function renderInicio() {
             <div class="text-xs text-gray-500">${esc(catTitulo(m.cat))} · ${esc(m.fase)}</div>
             ${m.jugado ? `<div class="mt-1 font-bold text-green-700">Resultado: ${esc(textoMarcador(m.score))}</div>` : ''}</div>`;
     };
-    let html = `<div class="max-w-3xl mx-auto">${window.pwaPuedeInstalar && pwaPuedeInstalar() ? '<button class="w-full mb-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg py-3 shadow-sm" onclick="pwaInstalar()">📲 Instalar la app en este dispositivo</button>' : ''}<div class="bg-white rounded-lg shadow-sm p-3 mb-3"><label class="text-xs font-semibold text-gray-600">Soy (para ver solo mis partidos)</label>
+    let Tv = torneoAct(), cardIns = (Tv && nube.activa && insAbierta(Tv) && /^https?:$/.test(location.protocol))
+        ? `<button class="w-full mb-3 text-center rounded-2xl p-4" style="background:#fff7ed;border:4px solid #ea580c" onclick="mostrarQR(ctxTorneo(torneoAct(), db.activo))"><div style="font-size:1.4rem;font-weight:800;color:#c2410c">📝 INSCRÍBETE AL TORNEO</div><div class="font-bold">${esc(Tv.nombre || '')}</div><div style="width:230px;margin:8px auto;background:#fff">${qrSvg(urlIns(db.activo), 4).replace('<svg', '<svg style="width:100%;height:auto"')}</div><div class="text-xs text-gray-600">${Tv.cierre ? 'Inscripciones hasta el ' + esc(fechaCorta(String(Tv.cierre).slice(0, 10))) + ', ' + esc(String(Tv.cierre).slice(11, 16)) + ' h · ' : ''}Escanea o toca para ampliar</div></button>` : '';
+    let html = `<div class="max-w-3xl mx-auto">${cardIns}${window.pwaPuedeInstalar && pwaPuedeInstalar() ? '<button class="w-full mb-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg py-3 shadow-sm" onclick="pwaInstalar()">📲 Instalar la app en este dispositivo</button>' : ''}<div class="bg-white rounded-lg shadow-sm p-3 mb-3"><label class="text-xs font-semibold text-gray-600">Soy (para ver solo mis partidos)</label>
         <select id="sel_yo" class="field" onchange="try{localStorage.setItem('tm_yo',this.value)}catch(e){};renderInicio()"><option value="">— Ver todos los partidos —</option>${nombres.map(n => `<option ${n === yo ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>`;
     if (yo) {
         let mios = L.filter(m => m.j1 === yo || m.j2 === yo), pend = mios.filter(m => !m.jugado).sort(orden), hechos = mios.filter(m => m.jugado);
@@ -4296,6 +4361,7 @@ document.addEventListener('pwa-estado', () => { if (tabActiva() === 'Inicio') re
     let v = null; try { v = localStorage.getItem('tm_vista'); } catch (e) {}
     if (v !== 'app' && v !== 'clasica') v = (window.innerWidth < 768) ? 'app' : 'clasica';
     setVista(v);
+    setInterval(pintarCabecera, 60000);
     setInterval(() => { if (!document.hidden && tabActiva() === 'Inicio' && !(document.activeElement && document.activeElement.id === 'sel_yo')) renderInicio(); }, 30000);
 })();
 </script>
