@@ -53,6 +53,12 @@
         .cab-peq:hover { background: #f3f4f6; }
         .cab-peq svg { width: 52px; height: 52px; flex: none; }
         .cab-peq b { display: block; font-size: .78rem; color: #166534; }
+        #recibo_print { display: none; }
+        @media print { body.imprimiendo > *:not(#recibo_print) { display: none !important; } body.imprimiendo #recibo_print { display: block !important; } }
+        .rec-box { font-family: system-ui, Segoe UI, Roboto, sans-serif; max-width: 520px; margin: 0 auto; color: #111; }
+        .rec-box table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .rec-box th, .rec-box td { border-bottom: 1px solid #ddd; padding: 5px 4px; text-align: left; }
+        .rec-box td.n, .rec-box th.n { text-align: right; }
         .sc-pend { background: #fef3c7 !important; border-color: #f59e0b !important; }
         .card-res { background: #fff; border-radius: 10px; padding: 8px 12px; box-shadow: 0 1px 2px rgba(0,0,0,.08); border-left: 4px solid #16a34a; }
         .card-res b { display: block; font-size: 1.5rem; line-height: 1.2; color: #166534; }
@@ -2415,12 +2421,24 @@ async function guardarPerfil() {
         if (nube.activa) {
             let up = { ['perfiles/meta/' + id]: meta, ['perfiles/fotos/' + id]: Object.keys(fotos).length ? fotos : null };
             if (E.sol) up['altas/solicitudes/' + E.sol] = null;     // la solicitud ya quedó aprobada
+            let sol = E.sol && perf.sol[E.sol], nIns = '';
+            if (sol && sol.pre && !E.id && /^\d{4}-\d{2}-\d{2}$/.test(meta.nac || '')) {      // pidió además inscribirse a un torneo: queda como inscripción por revisar
+                let w = catPorEtiqueta(sol.pre);
+                if (w) {
+                    let nid = 'i' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36), M = modPrueba(w.T.cats[w.c]), x = { m: M };
+                    if (M !== 'S') x.sp = true;
+                    let rec = { ts: Date.now(), aut: true, adm: true, pid: id, nombre: nombre.slice(0, 120), nac: meta.nac, tel: String(meta.tel || '').trim().slice(0, 20) || '-', p: { [w.c]: x } };
+                    if (meta.sexo) rec.sexo = String(meta.sexo).slice(0, 1);
+                    up['inscripciones/' + w.tid + '/' + nid] = rec; nIns = w.T.nombre + ' · ' + catNomK(w.T.cats[w.c], w.c);
+                }
+            }
             await nube.api.update(nube.api.ref(nube.rtdb), up);
         } else {
             perf.meta[id] = meta; if (Object.keys(fotos).length) perf.fotos[id] = fotos; else delete perf.fotos[id];
             if (!guardarPerfilesLocal()) { E.guardando = false; if (btn) { btn.disabled = false; btn.textContent = 'Guardar perfil'; } return; }
         }
         cerrarPerfil(); pintarListaPerfiles();
+        if (typeof nIns !== 'undefined' && nIns) avisoFlotante('✔ Perfil guardado y su inscripción a «' + nIns + '» quedó por revisar en Torneos → Inscripciones.');
     } catch (e) {
         E.guardando = false; if (btn) { btn.disabled = false; btn.textContent = 'Guardar perfil'; }
         alert('No se pudo guardar el perfil: ' + (e && e.message ? e.message : e));
@@ -2776,6 +2794,64 @@ const ESTADOS_INS = { S: 'Por revisar', C: 'Confirmada', L: 'Lista de espera', R
 function modPrueba(k) { return k && k.mod === 'D' ? (k.rama === 'M' ? 'M' : 'D') : 'S'; }
 function catNomK(k, c) { return (k.nombre && k.nombre !== c ? k.nombre : catAutoDe(k)) || c; }
 function cuotaDe(T) { let n = parseFloat(T.coop); if (!(n > 0)) return 0; return /pareja/i.test(T.coopNota || '') ? Math.round(n / 2 * 100) / 100 : n; }
+/* ===== Recibos / comprobantes ===== */
+function reciboHTML(r) {
+    const $$ = n => pesos(n);
+    let filas = r.items.map(i => `<tr><td>${esc(i.cat)}<div style="font-size:11px;color:#555">${esc(i.mod)}${i.pareja ? ' · ' + esc(i.pareja) : ''}</div></td><td class="n">${$$(i.cuota)}</td>${r.conPago ? `<td class="n">${$$(i.pagado)}</td>` : ''}</tr>`).join('');
+    return `<div class="rec-box"><div style="text-align:center;margin-bottom:8px"><div style="font-size:20px;font-weight:800">${esc(r.titulo)}</div>
+        <div style="font-size:14px;font-weight:700">${esc(r.torneo)}</div><div style="font-size:12px;color:#555">Folio ${esc(r.folio || '—')} · ${esc(r.fecha)}</div></div>
+        <div style="font-size:14px;margin-bottom:6px"><b>${esc(r.jugador)}</b>${r.reg ? ' · reg. ' + esc(r.reg) : ''}</div>
+        <table><thead><tr><th>Categoría</th><th class="n">Cuota</th>${r.conPago ? '<th class="n">Pagado</th>' : ''}</tr></thead><tbody>${filas}</tbody>
+        <tfoot><tr><td><b>Total a pagar</b></td><td class="n"><b>${$$(r.total)}</b></td>${r.conPago ? `<td class="n"><b>${$$(r.pagado)}</b></td>` : ''}</tr></tfoot></table>
+        <div style="margin-top:10px;padding:8px;border-radius:8px;background:${r.saldo > 0 ? '#fef3c7' : '#dcfce7'};font-size:14px"><b>${esc(r.estado)}</b>${r.conPago ? `<br>Pagado: <b>${$$(r.pagado)}</b> · ${r.saldo > 0 ? 'Pendiente: <b>' + $$(r.saldo) + '</b>' : '<b>Liquidado</b>'}${r.metodo ? ' · ' + esc(r.metodo) : ''}${r.fp ? ' · ' + esc(r.fp) : ''}` : `<br>Pagado: <b>$0</b> · Pendiente: <b>${$$(r.saldo)}</b>`}</div>
+        ${r.nota ? `<div style="font-size:12px;color:#444;margin-top:8px">${esc(r.nota)}</div>` : ''}
+        ${r.contacto ? `<div style="font-size:12px;color:#444;margin-top:6px">Contacto: ${esc(r.contacto)}</div>` : ''}</div>`;
+}
+function reciboTexto(r) {
+    let l = [`*${r.titulo}* · ${r.torneo}`, `Folio ${r.folio || '—'} · ${r.fecha}`, `Jugador: ${r.jugador}${r.reg ? ' (reg. ' + r.reg + ')' : ''}`];
+    r.items.forEach(i => l.push(`• ${i.cat} (${i.mod})${i.pareja ? ' con ' + i.pareja : ''}: ${pesos(i.cuota)}${r.conPago ? ' · pagado ' + pesos(i.pagado) : ''}`));
+    l.push(`Total: ${pesos(r.total)}`);
+    l.push(r.conPago ? `Pagado: ${pesos(r.pagado)} · ${r.saldo > 0 ? 'Pendiente: ' + pesos(r.saldo) : 'LIQUIDADO'}${r.metodo ? ' · ' + r.metodo : ''}` : `Pagado: $0 · Pendiente: ${pesos(r.saldo)}`);
+    l.push(r.estado);
+    return l.join('\n');
+}
+function imprimirRecibo(r) {
+    let box = document.getElementById('recibo_print'); box.innerHTML = reciboHTML(r);
+    document.body.classList.add('imprimiendo');
+    let fin = () => { document.body.classList.remove('imprimiendo'); box.innerHTML = ''; window.removeEventListener('afterprint', fin); };
+    window.addEventListener('afterprint', fin);
+    setTimeout(() => { try { window.print(); } catch (e) {} setTimeout(() => { if (document.body.classList.contains('imprimiendo')) fin(); }, 1500); }, 50);
+}
+function abrirRecibo(r, tel) {
+    let old = document.getElementById('modal_recibo'); if (old) old.remove();
+    let m = document.createElement('div'); m.id = 'modal_recibo';
+    m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;overflow:auto;padding:16px';
+    m.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:560px;margin:20px auto;padding:16px">${reciboHTML(r)}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px">
+        <button id="rc_print" class="bg-green-600 text-white px-3 py-2 rounded font-bold">🖨 Imprimir / guardar PDF</button>
+        <button id="rc_wa" class="bg-emerald-500 text-white px-3 py-2 rounded font-bold">💬 WhatsApp</button>
+        <button id="rc_close" class="bg-gray-200 px-3 py-2 rounded font-bold">Cerrar</button></div></div>`;
+    document.body.appendChild(m);
+    m.querySelector('#rc_close').onclick = () => m.remove();
+    m.querySelector('#rc_print').onclick = () => imprimirRecibo(r);
+    m.querySelector('#rc_wa').onclick = () => { let n = telWhats(tel || ''); abrirEnlace((n ? 'https://wa.me/' + n : 'https://wa.me/') + '?text=' + encodeURIComponent(reciboTexto(r)), true); };
+}
+/* recibo de pago de un jugador (todas sus categorías) en un torneo */
+function reciboDePago(tid, id) {
+    let T = db.torneos[tid], reg = (perf.ins[tid] || {})[id]; if (!T || !reg) return null;
+    let items = [], pagado = 0, total = 0, mt = '', fp = '', ests = [];
+    Object.keys(reg.p || {}).forEach(c => {
+        let k = T.cats && T.cats[c]; if (!k) return;
+        let g = gestDe(tid, id, c), m = parseFloat(g.m != null ? g.m : cuotaDe(T)) || 0, ab = parseFloat(g.ab) || 0, f = filasCat(tid, c).find(x => x.id === id);
+        items.push({ cat: catNomK(k, c), mod: PRUEBAS[modPrueba(k)], pareja: modPrueba(k) !== 'S' ? (f && f.par ? f.par.nom : SE_BUSCA_TXT) : '', cuota: m, pagado: ab });
+        total += m; pagado += ab; if (g.mt) mt = g.mt; if (g.fp && g.fp > fp) fp = g.fp; ests.push(g.e || 'S');
+    });
+    let pf = perfilDeIns(reg), saldo = Math.max(0, total - pagado);
+    return { titulo: saldo <= 0 && total > 0 ? 'RECIBO DE PAGO' : 'COMPROBANTE DE PAGO', folio: id.slice(-6).toUpperCase(), fecha: new Date().toLocaleDateString('es-MX'), torneo: T.nombre || '', jugador: pf.id ? perf.meta[pf.id].nombre : reg.nombre,
+        reg: pf.id ? numTxt(parseInt(perf.meta[pf.id].num) || 0) : '', items, total, pagado, saldo, conPago: true, metodo: mt, fp,
+        estado: ests.every(e => e === 'C') ? 'Inscripción CONFIRMADA' : ests.includes('L') ? 'En lista de espera' : 'Inscripción por confirmar', contacto: [T.org, T.tel].filter(x => x).join(' · '), tel: reg.tel };
+}
+const SE_BUSCA_TXT = 'buscando compañero';
 function cuotaTxt(T) { return T && parseFloat(T.coop) > 0 ? '$' + Number(T.coop).toLocaleString('es-MX') + (T.coopNota ? ' ' + T.coopNota : '') : ''; }
 function cierreVencido(T) { if (!T || !T.cierre) return false; let d = new Date(T.cierre); return !isNaN(d) && d < new Date(); }
 function insAbierta(T) { return !!T && T.estado === 'Inscripciones abiertas' && !cierreVencido(T); }
@@ -2801,12 +2877,14 @@ function pintarInsc() {
     const cerrar = '<button class="in-cerrar text-gray-500 hover:text-black text-2xl font-bold px-2" title="Cerrar">✕</button>';
     if (ins.lista === null) { F.innerHTML = '<div class="p-6 text-center text-red-700">No se pudo conectar. Revisa tu internet e inténtalo de nuevo.</div><div class="text-center"><button class="in-cerrar bg-gray-200 px-4 py-2 rounded font-bold">Cerrar</button></div>'; return; }
     if (ins.enviado) {
-        let c = cuotaTxt(T);
-        F.innerHTML = `<div class="text-center py-8"><div class="text-5xl mb-3">✅</div><h2 class="text-2xl font-bold text-green-700 mb-2">¡Solicitud de inscripción enviada!</h2>
-            <p class="text-gray-700 mb-1">Quedas inscrito cuando el organizador la confirme; te avisará por WhatsApp.</p>
-            ${c ? `<p class="text-sm text-gray-600 mb-1">Cuota: <b>${esc(c)}</b>. El organizador te indicará cómo pagar.</p>` : ''}
-            ${T.org || T.tel ? `<p class="text-sm text-gray-500 mb-3">Contacto: ${esc(T.org || '')} ${esc(T.tel || '')}</p>` : ''}
-            <button class="in-cerrar bg-green-600 text-white px-4 py-2 rounded font-bold">Cerrar</button></div>`;
+        let r = ins.rec;
+        F.innerHTML = `<div class="py-4"><div class="text-center"><div class="text-5xl mb-2">✅</div><h2 class="text-2xl font-bold text-green-700 mb-1">¡Solicitud recibida!</h2>
+            <p class="text-sm text-gray-700 mb-3">Quedó <b>pendiente de confirmación</b>. Quedas inscrito cuando el organizador la confirme y se registre tu pago; te avisará por WhatsApp.</p></div>
+            ${r ? `<div class="border rounded-lg p-3 bg-white mb-3">${reciboHTML(r)}</div>
+            <p class="text-xs text-gray-600 text-center mb-3">Guarda este comprobante (captura de pantalla o PDF) y preséntalo al pagar. Tu cuota queda <b>pendiente</b> hasta que el organizador registre tu pago.</p>
+            <div class="flex flex-wrap gap-2 justify-center mb-3"><button class="in-print bg-green-600 text-white px-3 py-2 rounded font-bold">🖨 Imprimir / guardar PDF</button>
+            ${telWhats(T.tel || '') ? `<button class="in-wa-org bg-emerald-500 text-white px-3 py-2 rounded font-bold">💬 Enviar al organizador por WhatsApp</button>` : ''}</div>` : ''}
+            <div class="text-center"><button class="in-cerrar bg-gray-200 px-4 py-2 rounded font-bold">Cerrar</button></div></div>`;
         return;
     }
     if (!T || ins.cerrado) {
@@ -2885,6 +2963,10 @@ async function enviarInsc() {
         if (r.status === 401 || r.status === 403) throw new Error('Las inscripciones de este torneo están cerradas o no disponibles.');
         if (!r.ok) throw new Error('No se pudo enviar (error ' + r.status + '). Inténtalo de nuevo.');
         try { localStorage.setItem('insc_ultimo', String(Date.now())); } catch (x) {}
+        let jr = {}; try { jr = await r.json(); } catch (x) {}
+        let cu = cuotaDe(T), its = elegidas.map(g => { let c = ins.sel[g], k = T.cats[c], q = ins.par[c] || {}; return { cat: catNomK(k, c), mod: PRUEBAS[g], pareja: g === 'S' ? '' : (q.sp ? SE_BUSCA_TXT : q.par), cuota: cu, pagado: 0 }; });
+        ins.rec = { titulo: 'COMPROBANTE DE SOLICITUD', folio: String(jr.name || '').slice(-6).toUpperCase(), fecha: new Date().toLocaleDateString('es-MX'), torneo: T.nombre || '', jugador: p.nombre, reg: p.reg || '', items: its, total: cu * its.length, pagado: 0, saldo: cu * its.length, conPago: false,
+            estado: 'PENDIENTE de confirmación y de pago', contacto: [T.org, T.tel].filter(x => x).join(' · '), nota: its.some(i => i.pareja === SE_BUSCA_TXT) ? 'Estás en la lista como «buscando compañero»; la organización te ayudará a encontrarlo.' : '' };
         ins.enviado = true; pintarInsc();
     } catch (x) { ins.msg = x.message || 'No se pudo enviar.'; pintarInsc(); }
     ins.enviando = false;
@@ -2900,6 +2982,15 @@ function perfilDeIns(r) {
     if (nr) { let id = ids.find(i => (parseInt(perf.meta[i].num) || 0) === nr); if (id) return { id, est: (perf.meta[id].nac || '') === r.nac ? 'ok' : 'nac' }; }
     let k = normN(r.nombre), id = ids.find(i => normN(perf.meta[i].nombre) === k && (perf.meta[i].nac || '') === (r.nac || ''));
     return id ? { id, est: 'ok' } : { est: 'sin' };
+}
+/* "Torneo · Categoría" (texto de la solicitud de perfil) -> {tid, c} */
+function catPorEtiqueta(pre) {
+    let partes = String(pre || '').split(' · '), cn = partes.length > 1 ? partes.pop() : '', tn = partes.join(' · ').trim();
+    let tid = Object.keys(db.torneos).find(id => (db.torneos[id].nombre || '').trim() === tn && db.torneos[id].estado === 'Inscripciones abiertas') || Object.keys(db.torneos).find(id => (db.torneos[id].nombre || '').trim() === tn);
+    if (!tid) return null;
+    let T = db.torneos[tid], cs = Object.keys(T.cats || {}).filter(c => T.cats[c] && T.cats[c].on);
+    let c = cn ? cs.find(c => { let k = T.cats[c]; return (k.nombre && k.nombre !== '' && !/^[A-Z]{1,2}$/.test(k.nombre) ? k.nombre : catAutoDe(k) || k.nombre || '') === cn; }) : (cs.length === 1 ? cs[0] : '');
+    return c ? { tid, c, T } : null;
 }
 function perfilPareja(pp) {
     if (!perf.listo || !pp) return '';
@@ -2978,7 +3069,7 @@ function htmlInscripciones(tid) {
                     <td class="p-1 border"><input type="number" min="0" class="ins-ab border rounded p-0.5 w-20" data-t="${tid}" data-id="${f.id}" data-c="${c}" value="${ab || ''}"><button class="ins-pag ml-1 underline text-green-700" data-t="${tid}" data-id="${f.id}" data-c="${c}" title="Marcar pagado completo">todo</button></td>
                     <td class="p-1 border"><select class="ins-mt border rounded p-0.5" data-t="${tid}" data-id="${f.id}" data-c="${c}"><option value="">—</option>${['Efectivo', 'Transferencia', 'Tarjeta', 'Otro'].map(v => opt(v, v, f.g.mt)).join('')}</select></td>
                     <td class="p-1 border"><span class="rounded px-1 font-bold ${ep[1]}">${ep[0]}</span>${f.g.fp ? `<div class="text-gray-500">${esc(f.g.fp)}</div>` : ''}</td>
-                    <td class="p-1 border whitespace-nowrap"><button class="ins-wa underline text-green-700" data-t="${tid}" data-id="${f.id}" data-c="${c}">WhatsApp</button> <button class="ins-del text-red-700" data-t="${tid}" data-id="${f.id}" data-c="${c}" title="Quitar esta categoría de la inscripción">✕</button></td></tr>`;
+                    <td class="p-1 border whitespace-nowrap">${e !== 'C' ? `<button class="ins-ok rounded bg-green-600 text-white px-2 py-0.5 font-bold mr-1" data-t="${tid}" data-id="${f.id}" data-c="${c}" title="Confirma la inscripción y lo pasa a su categoría y grupos">✔ Aceptar</button>` : ''}<button class="ins-rec underline text-blue-700 mr-1" data-t="${tid}" data-id="${f.id}" data-c="${c}" title="Recibo / comprobante de pago">🧾 Recibo</button><button class="ins-wa underline text-green-700" data-t="${tid}" data-id="${f.id}" data-c="${c}">WhatsApp</button> <button class="ins-del text-red-700" data-t="${tid}" data-id="${f.id}" data-c="${c}" title="Quitar esta categoría de la inscripción">✕</button></td></tr>`;
             }).join('')}</tbody></table></div></div>`;
     });
     let nombresDL = Object.keys(perf.meta).map(i => `<option value="${esc(perf.meta[i].nombre)} · ${numTxt(parseInt(perf.meta[i].num) || 0)}">`).join('');
@@ -3044,7 +3135,7 @@ async function insManual(tid) {
 function claveNom(x) { return normN(x || '').split('/').map(t => t.trim()).filter(t => t).sort().join('/'); }
 const SE_BUSCA = 'SE BUSCA COMPAÑERO';
 function pasarConfirmados(tid, filtro, auto) {
-    if (tid !== db.activo || hist) { if (!auto) alert('Para pasar a los confirmados a las categorías, primero pon este torneo "en operación" (botón en el calendario).'); return 0; }
+    if (tid !== db.activo || hist) { if (auto) avisoFlotante('⚠ Quedó confirmado, pero este torneo no está en operación: ponlo «en operación» (calendario) y pulsa «Pasar confirmados a las categorías» para que entre a los grupos.'); if (!auto) alert('Para pasar a los confirmados a las categorías, primero pon este torneo "en operación" (botón en el calendario).'); return 0; }
     let T = db.torneos[tid], n = 0, omit = [], nombresPasados = [];
     categorias.forEach(c => {
         if (!(T.cats && T.cats[c] && T.cats[c].on)) return;
@@ -3154,6 +3245,13 @@ document.addEventListener('click', async e => {
         let n = telWhats(tel); if (!n) { alert('No hay un número de WhatsApp válido (10 dígitos).'); return; }
         abrirEnlace(`https://wa.me/${n}?text=${encodeURIComponent(texto)}`, true); return;
     }
+    if (t.classList.contains('ins-ok')) {
+        let T = db.torneos[tid], v = 'C', cupo = parseInt(T.cupo) || 0;
+        if (cupo) { let rows = filasCat(tid, c), conf = rows.filter(f => f.g.e === 'C' && f.id !== id).length, M = modPrueba(T.cats[c]), usados = M === 'S' ? conf : Math.ceil((conf + 1) / 2); if (usados > cupo && confirm(`La categoría ya llegó al cupo (${cupo}). ¿Dejar a este jugador en lista de espera?`)) v = 'L'; }
+        if (v === 'C') _miCambio[tid + '|' + id + '|' + c] = Date.now();
+        await gestSet(tid, id, c, { e: v }); setTimeout(autoPasarPendientes, 50); return;
+    }
+    if (t.classList.contains('ins-rec')) { let r = reciboDePago(tid, id); if (r) abrirRecibo(r, r.tel); return; }
     if (t.classList.contains('ins-perfil')) {
         let r = (perf.ins[tid] || {})[id]; if (!r) return;
         abrirPerfil(null); Object.assign(perf.ed.d, { nombre: r.nombre, nac: r.nac, sexo: r.sexo || '', tel: r.tel !== '-' ? r.tel : '', tutor: r.tutor || '' });
@@ -3164,6 +3262,8 @@ document.addEventListener('click', async e => {
 document.addEventListener('click', e => {
     let t = e.target, c = t.closest ? t.closest('button') : null;
     if (c && c.classList.contains('in-cerrar')) { cerrarInsc(); return; }
+    if (c && c.classList.contains('in-print') && ins.rec) { imprimirRecibo(ins.rec); return; }
+    if (c && c.classList.contains('in-wa-org') && ins.rec) { let n = telWhats((ins.T || {}).tel || ''); if (n) abrirEnlace('https://wa.me/' + n + '?text=' + encodeURIComponent('Hola, hice mi solicitud de inscripción:\n' + reciboTexto(ins.rec)), true); return; }
     if (c && c.classList.contains('in-sel')) { let x = ins.lista.find(y => y.id === c.dataset.t); if (x) { ins.T = x; ins.tid = x.id; ins.cerrado = false; ins.sel = { S: '', D: '', M: '' }; ins.par = {}; pintarInsc(); window.scrollTo(0, 0); } return; }
     if (t.id === 'in_enviar') enviarInsc();
 });
@@ -4393,5 +4493,6 @@ document.addEventListener('pwa-estado', () => { if (tabActiva() === 'Inicio') re
     }
 })();
 </script>
+<div id="recibo_print"></div>
 </body>
 </html>
