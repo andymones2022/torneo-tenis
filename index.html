@@ -1678,6 +1678,7 @@ function renderTorneos() {
                     <div class="mt-2">${lab('Notas')}<textarea class="field tor-input text-sm" rows="2" data-id="${torEdit}" data-campo="notas">${v('notas')}</textarea></div>
                 </div>
                 <div><div class="text-sm font-bold text-green-800 mb-1">Categorías (hasta ${categorias.length})</div>
+                    ${(() => { let n = categorias.filter(c => cats[c] && cats[c].on && cats[c].mod !== 'D').length; return T.dob && !T.sing && n ? `<div class="mb-2 p-2 rounded bg-amber-50 border border-amber-300 text-xs"><b>Este torneo es de dobles, pero ${n} categoría(s) están como «Singles».</b> Mientras estén en Singles el sistema no pide pareja ni muestra «SE BUSCA COMPAÑERO».<br><button class="tor-btn mt-1 px-2 py-1 rounded font-bold bg-amber-600 text-white" data-acc="catsdobles" data-id="${torEdit}">Poner todas las categorías activas en Dobles</button></div>` : ''; })()}
                     <div class="bg-green-50 border border-green-200 rounded p-2 mb-2">
                         <div class="text-xs font-bold text-green-800 mb-1">Agregar categorías por nivel y rama</div>
                         <table class="text-xs border-collapse"><thead><tr><th class="p-1"></th>${Object.keys(RAMAS).map(r => `<th class="p-1 px-3">${RAMAS[r]}</th>`).join('')}</tr></thead><tbody>
@@ -3140,9 +3141,25 @@ async function insManual(tid) {
 /* Misma pareja aunque los nombres vengan en distinto orden (A / B = B / A) */
 function claveNom(x) { return normN(x || '').split('/').map(t => t.trim()).filter(t => t).sort().join('/'); }
 const SE_BUSCA = 'SE BUSCA COMPAÑERO';
+/* Copia celular, edad, correo y UTR del inscrito (y su perfil) a «Datos de los jugadores»; no pisa lo ya capturado */
+function volcarDatos(c, slot, filas) {
+    db.datos[c] = db.datos[c] || {};
+    let d = db.datos[c][slot] = db.datos[c][slot] || {}, tels = [], mails = [], edades = [], utrs = [], cambio = false;
+    filas.forEach(f => {
+        if (!f) return;
+        let m = f.pf && f.pf.id ? perf.meta[f.pf.id] : null, tel = String(f.r.tel && f.r.tel !== '-' ? f.r.tel : (m && m.tel) || '').trim();
+        if (tel && !tels.includes(tel)) tels.push(tel);
+        let em = String((m && m.email) || '').trim(); if (em && !mails.includes(em)) mails.push(em);
+        let ed = edadDe((m && m.nac) || f.r.nac); if (ed !== '') edades.push(ed);
+        if (m && m.utr !== '' && m.utr != null) utrs.push(m.utr);
+    });
+    const pon = (k, v) => { if (v !== '' && v != null && !String(d[k] || '').trim()) { d[k] = String(v); cambio = true; } };
+    pon('tel', tels.join(' / ')); pon('email', mails.join(' / ')); pon('edad', edades.join(' / ')); pon('utr', utrs.join(' / '));
+    return cambio;
+}
 function pasarConfirmados(tid, filtro, auto) {
     if (tid !== db.activo || hist) { if (auto) avisoFlotante('⚠ Quedó confirmado, pero este torneo no está en operación: ponlo «en operación» (calendario) y pulsa «Pasar confirmados a las categorías» para que entre a los grupos.'); if (!auto) alert('Para pasar a los confirmados a las categorías, primero pon este torneo "en operación" (botón en el calendario).'); return 0; }
-    let T = db.torneos[tid], n = 0, omit = [], nombresPasados = [];
+    let T = db.torneos[tid], n = 0, nDatos = 0, omit = [], nombresPasados = [];
     categorias.forEach(c => {
         if (!(T.cats && T.cats[c] && T.cats[c].on)) return;
         let D = catModo(c) === 'D', rows = filasCat(tid, c), hechos = new Set(), okRiesgo = null;
@@ -3164,13 +3181,16 @@ function pasarConfirmados(tid, filtro, auto) {
                     reemplazar = [claveNom(f.nom + ' / ' + SE_BUSCA), claveNom(p.nom + ' / ' + SE_BUSCA)];
                 }
             }
-            if (ya.has(claveNom(nombre))) { if (filtro) omit.push(f.nom + ': ya hay alguien con ese mismo nombre en «' + catTitulo(c) + '» (¿registro repetido? si es otra persona, cámbiale el nombre)'); return; }
+            if (ya.has(claveNom(nombre))) {
+                let ie = (db.jugadores[c] || []).findIndex(x => x && claveNom(x) === claveNom(nombre));
+                if (ie >= 0 && volcarDatos(c, ie, [f, D && f.par ? f.par.row : null])) { saveDB(); if (!auto) nDatos++; }
+                if (filtro) omit.push(f.nom + ': ya hay alguien con ese mismo nombre en «' + catTitulo(c) + '» (¿registro repetido? si es otra persona, cámbiale el nombre)'); return; }
             let slotRe = -1;
             if (reemplazar.length) {
                 let idx = []; (db.jugadores[c] || []).forEach((x, i) => { if (x && reemplazar.includes(claveNom(x))) idx.push(i); });
                 if (idx.length) { slotRe = idx[0]; idx.slice(1).forEach(i => { db.jugadores[c][i] = ''; if (db.vinc[c]) delete db.vinc[c][i]; }); }
             }
-            if (slotRe >= 0) { db.jugadores[c][slotRe] = nombre; ya.add(claveNom(nombre)); if (ids.length) db.vinc[c][slotRe] = ids.join(','); nombresPasados.push(nombre + ' → ' + catTitulo(c)); n++; return; }
+            if (slotRe >= 0) { db.jugadores[c][slotRe] = nombre; ya.add(claveNom(nombre)); if (ids.length) db.vinc[c][slotRe] = ids.join(','); volcarDatos(c, slotRe, [f, D && f.par ? f.par.row : null]); nombresPasados.push(nombre + ' → ' + catTitulo(c)); n++; return; }
             if (auto && riesgo) {
                 if (okRiesgo === null) okRiesgo = confirm('«' + catTitulo(c) + '» ya tiene marcadores o horarios capturados.\n\nSi entra «' + nombre + '» los grupos se repartirán de nuevo y se pueden mover partidos y resultados.\n\n¿Pasarlo ahora a la categoría?\n(Si cancelas, podrás pasarlo después con «Pasar confirmados a las categorías».)');
                 if (!okRiesgo) { omit.push(nombre + ': pendiente (la categoría ya tiene partidos)'); return; }
@@ -3179,10 +3199,11 @@ function pasarConfirmados(tid, filtro, auto) {
             if (slot < 0) { omit.push(nombre + ': no hay lugar en la categoría'); return; }
             db.jugadores[c][slot] = nombre; ya.add(claveNom(nombre)); nombresPasados.push(nombre + ' → ' + catTitulo(c));
             if (ids.length) { db.vinc[c][slot] = ids.join(','); }
+            volcarDatos(c, slot, [f, D && f.par ? f.par.row : null]);
             n++;
         });
     });
-    if (n) { saveDB(); pintarTabs(); }
+    if (n || nDatos) { saveDB(); pintarTabs(); }
     if (auto) { if (n) avisoFlotante('✔ Pasó a su categoría: ' + nombresPasados.join(', ')); else if (omit.length) avisoFlotante('⚠ No pasó a los grupos: ' + omit.join('; ')); return n; }
     alert(`Se pasaron ${n} inscripción(es) a las categorías.` + (omit.length ? `\n\nNo se pasaron:\n- ${omit.join('\n- ')}` : ''));
     return n;
@@ -4221,6 +4242,12 @@ document.addEventListener('click', e => {
         else if (acc === 'activar') activarTorneo(id);
         else if (acc === 'ver') verHistorico(id);
         else if (acc === 'plantilla') agregarCategoriasPlantilla(id);
+        else if (acc === 'catsdobles') {
+            let T = db.torneos[id]; if (!T) return;
+            if (!confirm('Todas las categorías activas de «' + (T.nombre || '') + '» pasarán a DOBLES (pareja). Los jugadores que ya estén en listas de Singles se quedan con su nombre; las inscripciones nuevas pedirán pareja.\n\n¿Continuar?')) return;
+            Object.keys(T.cats || {}).forEach(c => { if (T.cats[c] && T.cats[c].on) T.cats[c].mod = 'D'; });
+            saveDB(); pintarTabs(); renderTorneos();
+        }
         else if (acc === 'terminar') terminarTorneo();
         else if (acc === 'eliminar') {
             let T = db.torneos[id];
