@@ -2992,6 +2992,12 @@ function catPorEtiqueta(pre) {
     let c = cn ? cs.find(c => { let k = T.cats[c]; return (k.nombre && k.nombre !== '' && !/^[A-Z]{1,2}$/.test(k.nombre) ? k.nombre : catAutoDe(k) || k.nombre || '') === cn; }) : (cs.length === 1 ? cs[0] : '');
     return c ? { tid, c, T } : null;
 }
+/* lugar que ocupa un inscrito en la lista de su categoría (-1 si no está) */
+function dupNombre(rows, f) { let k = claveNom(f.nom); return rows.some(x => x.id !== f.id && claveNom(x.nom) === k); }
+function lugarEnLista(c, f) {
+    let k = claveNom(f.nom);
+    return (db.jugadores[c] || []).findIndex(x => x && !/SE BUSCA/i.test(x) ? x.split('/').some(t => claveNom(t) === k) : (x && claveNom(String(x).split('/')[0]) === k));
+}
 function perfilPareja(pp) {
     if (!perf.listo || !pp) return '';
     let ids = Object.keys(perf.meta), nr = parseInt(pp.pr);
@@ -3068,7 +3074,7 @@ function htmlInscripciones(tid) {
                     <td class="p-1 border"><input type="number" min="0" class="ins-m border rounded p-0.5 w-20" data-t="${tid}" data-id="${f.id}" data-c="${c}" value="${m}"></td>
                     <td class="p-1 border"><input type="number" min="0" class="ins-ab border rounded p-0.5 w-20" data-t="${tid}" data-id="${f.id}" data-c="${c}" value="${ab || ''}"><button class="ins-pag ml-1 underline text-green-700" data-t="${tid}" data-id="${f.id}" data-c="${c}" title="Marcar pagado completo">todo</button></td>
                     <td class="p-1 border"><select class="ins-mt border rounded p-0.5" data-t="${tid}" data-id="${f.id}" data-c="${c}"><option value="">—</option>${['Efectivo', 'Transferencia', 'Tarjeta', 'Otro'].map(v => opt(v, v, f.g.mt)).join('')}</select></td>
-                    <td class="p-1 border"><span class="rounded px-1 font-bold ${ep[1]}">${ep[0]}</span>${f.g.fp ? `<div class="text-gray-500">${esc(f.g.fp)}</div>` : ''}</td>
+                    <td class="p-1 border"><span class="rounded px-1 font-bold ${ep[1]}">${ep[0]}</span>${f.g.fp ? `<div class="text-gray-500">${esc(f.g.fp)}</div>` : ''}${e === 'C' ? (tid !== db.activo ? '<div class="text-amber-700 font-bold" title="Pon este torneo en operación (calendario) y pulsa Pasar confirmados">⚠ torneo no en operación: aún no está en grupos</div>' : (lugarEnLista(c, f) >= 0 ? `<div class="text-green-700">✔ en grupos · lugar ${lugarEnLista(c, f) + 1}</div>` : `<div class="text-red-700 font-bold">⚠ no está en grupos</div><button class="ins-pasar rounded bg-blue-600 text-white px-2 py-0.5 font-bold" data-t="${tid}" data-id="${f.id}" data-c="${c}">Pasar ahora</button>`)) : ''}${dupNombre(rows, f) ? '<div class="text-red-700 font-bold" title="Hay otro inscrito con el mismo nombre en esta categoría">⚠ nombre repetido</div>' : ''}</td>
                     <td class="p-1 border whitespace-nowrap">${e !== 'C' ? `<button class="ins-ok rounded bg-green-600 text-white px-2 py-0.5 font-bold mr-1" data-t="${tid}" data-id="${f.id}" data-c="${c}" title="Confirma la inscripción y lo pasa a su categoría y grupos">✔ Aceptar</button>` : ''}<button class="ins-rec underline text-blue-700 mr-1" data-t="${tid}" data-id="${f.id}" data-c="${c}" title="Recibo / comprobante de pago">🧾 Recibo</button><button class="ins-wa underline text-green-700" data-t="${tid}" data-id="${f.id}" data-c="${c}">WhatsApp</button> <button class="ins-del text-red-700" data-t="${tid}" data-id="${f.id}" data-c="${c}" title="Quitar esta categoría de la inscripción">✕</button></td></tr>`;
             }).join('')}</tbody></table></div></div>`;
     });
@@ -3158,7 +3164,7 @@ function pasarConfirmados(tid, filtro, auto) {
                     reemplazar = [claveNom(f.nom + ' / ' + SE_BUSCA), claveNom(p.nom + ' / ' + SE_BUSCA)];
                 }
             }
-            if (ya.has(claveNom(nombre))) return;
+            if (ya.has(claveNom(nombre))) { if (filtro) omit.push(f.nom + ': ya hay alguien con ese mismo nombre en «' + catTitulo(c) + '» (¿registro repetido? si es otra persona, cámbiale el nombre)'); return; }
             let slotRe = -1;
             if (reemplazar.length) {
                 let idx = []; (db.jugadores[c] || []).forEach((x, i) => { if (x && reemplazar.includes(claveNom(x))) idx.push(i); });
@@ -3177,7 +3183,7 @@ function pasarConfirmados(tid, filtro, auto) {
         });
     });
     if (n) { saveDB(); pintarTabs(); }
-    if (auto) { if (n) avisoFlotante('✔ Pasó a su categoría: ' + nombresPasados.join(', ')); return n; }
+    if (auto) { if (n) avisoFlotante('✔ Pasó a su categoría: ' + nombresPasados.join(', ')); else if (omit.length) avisoFlotante('⚠ No pasó a los grupos: ' + omit.join('; ')); return n; }
     alert(`Se pasaron ${n} inscripción(es) a las categorías.` + (omit.length ? `\n\nNo se pasaron:\n- ${omit.join('\n- ')}` : ''));
     return n;
 }
@@ -3245,6 +3251,7 @@ document.addEventListener('click', async e => {
         let n = telWhats(tel); if (!n) { alert('No hay un número de WhatsApp válido (10 dígitos).'); return; }
         abrirEnlace(`https://wa.me/${n}?text=${encodeURIComponent(texto)}`, true); return;
     }
+    if (t.classList.contains('ins-pasar')) { pasarConfirmados(tid, x => x.id === id && x.c === c, false); return; }
     if (t.classList.contains('ins-ok')) {
         let T = db.torneos[tid], v = 'C', cupo = parseInt(T.cupo) || 0;
         if (cupo) { let rows = filasCat(tid, c), conf = rows.filter(f => f.g.e === 'C' && f.id !== id).length, M = modPrueba(T.cats[c]), usados = M === 'S' ? conf : Math.ceil((conf + 1) / 2); if (usados > cupo && confirm(`La categoría ya llegó al cupo (${cupo}). ¿Dejar a este jugador en lista de espera?`)) v = 'L'; }
